@@ -1,5 +1,5 @@
 {
-    "id": "ip-reputation",
+    "id": "ip-analysis",
     "name": "IP Reputation Checker",
     "version": "1.0.0",
     "minAppVersion": "0.15.0",
