@@ -1,0 +1,10 @@
+{
+    "id": "ip-reputation",
+    "name": "IP Reputation Checker",
+    "version": "1.0.0",
+    "minAppVersion": "0.15.0",
+    "description": "Scans notes for public IPv4 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.",
+    "author": "Michael Massoni",
+    "authorUrl": "https://github.com/michaelmassoni",
+    "isDesktopOnly": false
+} 
