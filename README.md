@@ -49,6 +49,32 @@ Found suspicious IP: 185.220.101.22
   - AbuseIPDB: 75% confidence of abuse, last reported 2d ago
 ```
 
+## Privacy
+
+This plugin:
+- Sends IP addresses to VirusTotal and AbuseIPDB for reputation checking
+- Stores API keys locally in your Obsidian settings
+- Caches reputation data locally to minimize API calls
+- Does not collect or store any personal data
+- Does not send any data to third parties other than the configured APIs
+
+## Support
+
+If you encounter any issues or have questions:
+1. Check the [GitHub Issues](https://github.com/michaelmassoni/obsidian-ip-tool/issues) page
+2. Create a new issue if your problem isn't already reported
+3. Include:
+   - Obsidian version
+   - Plugin version
+   - Steps to reproduce
+   - Any error messages
+
+Known Limitations:
+- Only supports IPv4 addresses
+- Requires internet connection
+- API rate limits may apply based on your API key tier
+- Some IP addresses may not have reputation data available
+
 ## Development
 
 1. Clone this repository
