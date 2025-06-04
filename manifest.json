@@ -1,6 +1,6 @@
 {
     "id": "ip-analysis",
-    "name": "IP Reputation Checker",
+    "name": "IP Reputation Analysis",
     "version": "1.0.0",
     "minAppVersion": "0.15.0",
     "description": "Scans notes for public IPv4 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.",

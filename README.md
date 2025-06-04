@@ -1,4 +1,4 @@
-# IP Reputation Checker for Obsidian
+# IP Reputation Analysis Tool for Obsidian
 
 This Obsidian plugin scans your notes for public IPv4 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
 
