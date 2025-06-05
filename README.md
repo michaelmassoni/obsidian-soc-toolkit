@@ -39,14 +39,20 @@ Before using the plugin, you need to configure your API keys:
 
 Before:
 ```
-Found suspicious IPs: 185.220.101.22 and 2001:db8:85a3:8d3:1319:8a2e:370:7348
+IPs involved in incident:
+- 8.8.8.8
+- 2001:4860:4860::8888
 ```
 
 After running the plugin:
 ```
-Found suspicious IPs: 185.220.101.22 and 2001:db8:85a3:8d3:1319:8a2e:370:7348
-  - VirusTotal: 15/94 vendors flagged as malicious
-  - AbuseIPDB: 75% confidence of abuse, last reported 2d ago
+IPs involved in incident:
+- 8.8.8.8
+  - VirusTotal: 0/94 vendors flagged as malicious
+  - AbuseIPDB: 0% confidence of abuse, last reported today
+- 2001:4860:4860::8888
+  - VirusTotal: 0/94 vendors flagged as malicious
+  - AbuseIPDB: 0% confidence of abuse, last reported 66d ago
 ```
 
 ## Privacy
