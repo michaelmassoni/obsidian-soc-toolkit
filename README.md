@@ -1,15 +1,14 @@
 # IP Reputation Analysis Tool for Obsidian
 
-This Obsidian plugin scans your notes for public IPv4 and IPv6 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
+An Obsidian plugin that scans your note for public IP addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
 
 ## Features
 
-- Automatically detects public IPv4 and IPv6 addresses in your notes
+- Scans notes for both IPv4 and IPv6 addresses
 - Checks IP reputation using VirusTotal and AbuseIPDB APIs
-- Adds inline annotations with reputation data
-- Caches results to minimise API calls
-- Configurable cache duration
-- Command palette integration
+- Caches results to minimize API calls
+- Customisable output format for both APIs
+- Example output preview
 
 ## Installation
 
