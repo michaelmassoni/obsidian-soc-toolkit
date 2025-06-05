@@ -8,11 +8,31 @@ interface IPReputationData {
         maliciousCount: number;
         totalVendors: number;
         lastChecked: number;
+        harmlessCount: number;
+        suspiciousCount: number;
+        timeoutCount: number;
+        undetectedCount: number;
+        lastAnalysisDate: string;
+        country: string;
+        asOwner: string;
+        asn: string;
+        network: string;
+        tags: string[];
     };
     abuseipdb: {
         confidenceScore: number;
         lastReported: string;
         lastChecked: number;
+        totalReports: number;
+        numDistinctUsers: number;
+        lastReportedAt: string;
+        isPublic: boolean;
+        isWhitelisted: boolean;
+        countryCode: string;
+        countryName: string;
+        usageType: string;
+        domain: string;
+        hostnames: string[];
     };
 }
 
@@ -23,6 +43,18 @@ interface IPSettings {
     virustotalApiKey: string;
     abuseipdbApiKey: string;
     cacheDuration: number; // in hours
+    outputFormat: {
+        virustotal: {
+            enabled: boolean;
+            format: string;
+            description: string;
+        };
+        abuseipdb: {
+            enabled: boolean;
+            format: string;
+            description: string;
+        };
+    };
 }
 
 /**
@@ -31,7 +63,43 @@ interface IPSettings {
 const DEFAULT_SETTINGS: IPSettings = {
     virustotalApiKey: '',
     abuseipdbApiKey: '',
-    cacheDuration: 24
+    cacheDuration: 24,
+    outputFormat: {
+        virustotal: {
+            enabled: true,
+            format: '{maliciousCount}/{totalVendors} vendors flagged as malicious',
+            description: `Available fields:
+- {maliciousCount}: Number of vendors that flagged the IP as malicious
+- {totalVendors}: Total number of vendors that analyzed the IP
+- {harmlessCount}: Number of vendors that flagged the IP as harmless
+- {suspiciousCount}: Number of vendors that flagged the IP as suspicious
+- {timeoutCount}: Number of vendors that timed out while analyzing
+- {undetectedCount}: Number of vendors that didn't detect anything
+- {lastAnalysisDate}: Date of the last analysis
+- {country}: Country where the IP is located
+- {asOwner}: Autonomous System owner
+- {asn}: Autonomous System Number
+- {network}: Network/CIDR block
+- {tags}: List of tags associated with the IP`
+        },
+        abuseipdb: {
+            enabled: true,
+            format: '{confidenceScore}% confidence of abuse, last reported {lastReported}',
+            description: `Available fields:
+- {confidenceScore}: Confidence score of abuse (0-100)
+- {lastReported}: Time since the IP was last reported
+- {totalReports}: Total number of reports for this IP
+- {numDistinctUsers}: Number of distinct users who reported this IP
+- {lastReportedAt}: Raw timestamp of the last report
+- {isPublic}: Whether the IP is public
+- {isWhitelisted}: Whether the IP is whitelisted
+- {countryCode}: Two-letter country code
+- {countryName}: Full country name
+- {usageType}: Type of usage (e.g., "Data Center", "ISP")
+- {domain}: Associated domain name
+- {hostnames}: List of associated hostnames`
+        }
+    }
 }
 
 /**
@@ -190,18 +258,39 @@ export default class IPReputationPlugin extends Plugin {
             // Extract data with fallbacks
             const vtStats = vtData?.data?.attributes?.last_analysis_stats || {};
             const vtResults = vtData?.data?.attributes?.last_analysis_results || {};
+            const vtAttributes = vtData?.data?.attributes || {};
             const abuseDataObj = abuseData?.data || {};
 
             const reputation: IPReputationData = {
                 virustotal: {
                     maliciousCount: vtStats.malicious || 0,
                     totalVendors: Object.keys(vtResults).length,
-                    lastChecked: Date.now()
+                    lastChecked: Date.now(),
+                    harmlessCount: vtStats.harmless || 0,
+                    suspiciousCount: vtStats.suspicious || 0,
+                    timeoutCount: vtStats.timeout || 0,
+                    undetectedCount: vtStats.undetected || 0,
+                    lastAnalysisDate: vtAttributes.last_analysis_date || '',
+                    country: vtAttributes.country || '',
+                    asOwner: vtAttributes.as_owner || '',
+                    asn: vtAttributes.asn || '',
+                    network: vtAttributes.network || '',
+                    tags: vtAttributes.tags || []
                 },
                 abuseipdb: {
                     confidenceScore: abuseDataObj.abuseConfidenceScore || 0,
                     lastReported: abuseDataObj.lastReportedAt || new Date().toISOString(),
-                    lastChecked: Date.now()
+                    lastChecked: Date.now(),
+                    totalReports: abuseDataObj.totalReports || 0,
+                    numDistinctUsers: abuseDataObj.numDistinctUsers || 0,
+                    lastReportedAt: abuseDataObj.lastReportedAt || '',
+                    isPublic: abuseDataObj.isPublic || false,
+                    isWhitelisted: abuseDataObj.isWhitelisted || false,
+                    countryCode: abuseDataObj.countryCode || '',
+                    countryName: abuseDataObj.countryName || '',
+                    usageType: abuseDataObj.usageType || '',
+                    domain: abuseDataObj.domain || '',
+                    hostnames: abuseDataObj.hostnames || []
                 }
             };
 
@@ -280,6 +369,42 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
+     * Get a human-readable time ago string from an ISO date string
+     */
+    public getTimeAgo(dateString: string): string {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+        
+        if (diffInSeconds < 60) {
+            return 'just now';
+        }
+        
+        const diffInMinutes = Math.floor(diffInSeconds / 60);
+        if (diffInMinutes < 60) {
+            return `${diffInMinutes}m ago`;
+        }
+        
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        if (diffInHours < 24) {
+            return `${diffInHours}h ago`;
+        }
+        
+        const diffInDays = Math.floor(diffInHours / 24);
+        if (diffInDays < 30) {
+            return `${diffInDays}d ago`;
+        }
+        
+        const diffInMonths = Math.floor(diffInDays / 30);
+        if (diffInMonths < 12) {
+            return `${diffInMonths}mo ago`;
+        }
+        
+        const diffInYears = Math.floor(diffInMonths / 12);
+        return `${diffInYears}y ago`;
+    }
+
+    /**
      * Update the note with reputation data for an IP address
      */
     private updateNoteWithReputation(editor: Editor, ip: string, reputation: IPReputationData) {
@@ -298,11 +423,45 @@ export default class IPReputationPlugin extends Plugin {
             const hasAnnotation = nextLine.startsWith('  - VirusTotal:') || nextLine.startsWith('  - AbuseIPDB:');
 
             if (!hasAnnotation) {
-                newContent += '\n  - VirusTotal: ' + 
-                    `${reputation.virustotal.maliciousCount}/${reputation.virustotal.totalVendors} vendors flagged as malicious\n` +
-                    '  - AbuseIPDB: ' +
-                    `${reputation.abuseipdb.confidenceScore}% confidence of abuse, ` +
-                    `last reported ${this.getTimeAgo(reputation.abuseipdb.lastReported)}`;
+                let annotation = '\n';
+                
+                if (this.settings.outputFormat.virustotal.enabled) {
+                    const vtFormat = this.settings.outputFormat.virustotal.format;
+                    const vtOutput = vtFormat
+                        .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
+                        .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
+                        .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
+                        .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
+                        .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
+                        .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
+                        .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
+                        .replace('{country}', reputation.virustotal.country)
+                        .replace('{asOwner}', reputation.virustotal.asOwner)
+                        .replace('{asn}', reputation.virustotal.asn)
+                        .replace('{network}', reputation.virustotal.network)
+                        .replace('{tags}', reputation.virustotal.tags.join(', '));
+                    annotation += `  - VirusTotal: ${vtOutput}\n`;
+                }
+
+                if (this.settings.outputFormat.abuseipdb.enabled) {
+                    const abuseFormat = this.settings.outputFormat.abuseipdb.format;
+                    const abuseOutput = abuseFormat
+                        .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
+                        .replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported))
+                        .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
+                        .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
+                        .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
+                        .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
+                        .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
+                        .replace('{countryCode}', reputation.abuseipdb.countryCode)
+                        .replace('{countryName}', reputation.abuseipdb.countryName)
+                        .replace('{usageType}', reputation.abuseipdb.usageType)
+                        .replace('{domain}', reputation.abuseipdb.domain)
+                        .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
+                    annotation += `  - AbuseIPDB: ${abuseOutput}`;
+                }
+
+                newContent += annotation;
             }
 
             lastIndex = match.index + match[0].length;
@@ -310,19 +469,6 @@ export default class IPReputationPlugin extends Plugin {
 
         newContent += content.slice(lastIndex);
         editor.setValue(newContent);
-    }
-
-    /**
-     * Convert a date string to a human-readable time ago format
-     */
-    private getTimeAgo(dateString: string): string {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (diffInDays === 0) return 'today';
-        if (diffInDays === 1) return 'yesterday';
-        return `${diffInDays}d ago`;
     }
 
     /**
@@ -351,6 +497,8 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
+                console.log('VirusTotal full response:', JSON.stringify(data, null, 2));
+                
                 if (!data) {
                     results.errors.virustotal = 'Empty response from VirusTotal API';
                 } else if (!data.data) {
@@ -389,6 +537,8 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
+                console.log('AbuseIPDB full response:', JSON.stringify(data, null, 2));
+                
                 if (data.data && typeof data.data.abuseConfidenceScore === 'number') {
                     results.abuseipdb = true;
                 } else {
@@ -426,7 +576,8 @@ class IPSettingTab extends PluginSettingTab {
         const {containerEl} = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', {text: 'IP Reputation Settings'});
+        // API Settings Section
+        containerEl.createEl('h2', {text: 'API Settings'});
 
         // VirusTotal API Key setting
         new Setting(containerEl)
@@ -438,6 +589,7 @@ class IPSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.virustotalApiKey = value;
                     await this.plugin.saveSettings();
+                    this.updateExampleOutput();
                 }));
 
         // AbuseIPDB API Key setting
@@ -450,21 +602,7 @@ class IPSettingTab extends PluginSettingTab {
                 .onChange(async (value) => {
                     this.plugin.settings.abuseipdbApiKey = value;
                     await this.plugin.saveSettings();
-                }));
-
-        // Cache Duration setting
-        new Setting(containerEl)
-            .setName('Cache Duration')
-            .setDesc('How long to cache results (in hours)')
-            .addText(text => text
-                .setPlaceholder('24')
-                .setValue(this.plugin.settings.cacheDuration.toString())
-                .onChange(async (value) => {
-                    const num = parseInt(value);
-                    if (!isNaN(num) && num > 0) {
-                        this.plugin.settings.cacheDuration = num;
-                        await this.plugin.saveSettings();
-                    }
+                    this.updateExampleOutput();
                 }));
 
         // Test API Keys button
@@ -490,5 +628,214 @@ class IPSettingTab extends PluginSettingTab {
                     
                     new Notice(message);
                 }));
+
+        // Cache Duration setting
+        new Setting(containerEl)
+            .setName('Cache Duration')
+            .setDesc('How long to cache results (in hours)')
+            .addText(text => text
+                .setPlaceholder('24')
+                .setValue(this.plugin.settings.cacheDuration.toString())
+                .onChange(async (value) => {
+                    const num = parseInt(value);
+                    if (!isNaN(num) && num > 0) {
+                        this.plugin.settings.cacheDuration = num;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        // Output Format Settings
+        containerEl.createEl('h2', { text: 'Output Format Settings' });
+        
+        // Example output
+        const exampleOutput = containerEl.createEl('div', {
+            cls: 'setting-item',
+            attr: {
+                style: 'margin-bottom: 20px;'
+            }
+        });
+        const exampleHeader = exampleOutput.createEl('div', {
+            attr: {
+                style: 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'
+            }
+        });
+        exampleHeader.createEl('div', {
+            text: 'Example output:',
+            attr: {
+                style: 'font-weight: 500;'
+            }
+        });
+        const refreshButton = exampleHeader.createEl('button', {
+            text: '↻',
+            attr: {
+                style: 'padding: 2px 6px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); cursor: pointer;'
+            }
+        });
+        refreshButton.addEventListener('click', () => {
+            exampleContent.setText(this.getExampleOutput());
+        });
+        const exampleContent = exampleOutput.createEl('div', {
+            cls: 'setting-item-description',
+            text: this.getExampleOutput()
+        });
+        exampleContent.style.marginTop = '8px';
+        exampleContent.style.padding = '8px';
+        exampleContent.style.backgroundColor = 'var(--background-secondary)';
+        exampleContent.style.borderRadius = '4px';
+        exampleContent.style.fontFamily = 'monospace';
+        exampleContent.style.whiteSpace = 'pre';
+
+        // VirusTotal Output Format
+        const vtSetting = new Setting(containerEl)
+            .setName('VirusTotal Output')
+            .setDesc('Customise how VirusTotal data is displayed')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.outputFormat.virustotal.enabled)
+                .onChange(async (value) => {
+                    this.plugin.settings.outputFormat.virustotal.enabled = value;
+                    await this.plugin.saveSettings();
+                    this.updateExampleOutput();
+                }));
+
+        const vtFormatContainer = containerEl.createDiv('setting-item-control');
+        const vtFormatInput = vtFormatContainer.createEl('input', {
+            type: 'text',
+            value: this.plugin.settings.outputFormat.virustotal.format,
+            placeholder: 'Enter format string'
+        });
+        vtFormatInput.style.width = '100%';
+        vtFormatInput.style.marginTop = '8px';
+        vtFormatInput.addEventListener('input', async (e) => {
+            this.plugin.settings.outputFormat.virustotal.format = (e.target as HTMLInputElement).value;
+            await this.plugin.saveSettings();
+            this.updateExampleOutput();
+        });
+
+        // Add VirusTotal field descriptions
+        const vtDescContainer = containerEl.createDiv('setting-item-description');
+        vtDescContainer.innerHTML = this.plugin.settings.outputFormat.virustotal.description.replace(/\n/g, '<br>');
+        vtDescContainer.style.marginTop = '8px';
+        vtDescContainer.style.padding = '8px';
+        vtDescContainer.style.backgroundColor = 'var(--background-secondary)';
+        vtDescContainer.style.borderRadius = '4px';
+
+        // AbuseIPDB Output Format
+        const abuseSetting = new Setting(containerEl)
+            .setName('AbuseIPDB Output')
+            .setDesc('Customise how AbuseIPDB data is displayed')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.outputFormat.abuseipdb.enabled)
+                .onChange(async (value) => {
+                    this.plugin.settings.outputFormat.abuseipdb.enabled = value;
+                    await this.plugin.saveSettings();
+                    this.updateExampleOutput();
+                }));
+
+        const abuseFormatContainer = containerEl.createDiv('setting-item-control');
+        const abuseFormatInput = abuseFormatContainer.createEl('input', {
+            type: 'text',
+            value: this.plugin.settings.outputFormat.abuseipdb.format,
+            placeholder: 'Enter format string'
+        });
+        abuseFormatInput.style.width = '100%';
+        abuseFormatInput.style.marginTop = '8px';
+        abuseFormatInput.addEventListener('input', async (e) => {
+            this.plugin.settings.outputFormat.abuseipdb.format = (e.target as HTMLInputElement).value;
+            await this.plugin.saveSettings();
+            this.updateExampleOutput();
+        });
+
+        // Add AbuseIPDB field descriptions
+        const abuseDescContainer = containerEl.createDiv('setting-item-description');
+        abuseDescContainer.innerHTML = this.plugin.settings.outputFormat.abuseipdb.description.replace(/\n/g, '<br>');
+        abuseDescContainer.style.marginTop = '8px';
+        abuseDescContainer.style.padding = '8px';
+        abuseDescContainer.style.backgroundColor = 'var(--background-secondary)';
+        abuseDescContainer.style.borderRadius = '4px';
+    }
+
+    private getExampleOutput(): string {
+        const exampleData: IPReputationData = {
+            virustotal: {
+                maliciousCount: 2,
+                totalVendors: 94,
+                lastChecked: Date.now(),
+                harmlessCount: 90,
+                suspiciousCount: 1,
+                timeoutCount: 0,
+                undetectedCount: 1,
+                lastAnalysisDate: '2024-03-15T12:00:00Z',
+                country: 'United States',
+                asOwner: 'Google LLC',
+                asn: 'AS15169',
+                network: '8.8.8.0/24',
+                tags: ['malware', 'botnet']
+            },
+            abuseipdb: {
+                confidenceScore: 75,
+                lastReported: '2024-03-15T12:00:00Z',
+                lastChecked: Date.now(),
+                totalReports: 150,
+                numDistinctUsers: 45,
+                lastReportedAt: '2024-03-15T12:00:00Z',
+                isPublic: true,
+                isWhitelisted: false,
+                countryCode: 'US',
+                countryName: 'United States',
+                usageType: 'Data Center',
+                domain: 'google.com',
+                hostnames: ['dns.google']
+            }
+        };
+
+        let output = '8.8.8.8\n';
+        
+        if (this.plugin.settings.outputFormat.virustotal.enabled) {
+            const vtFormat = this.plugin.settings.outputFormat.virustotal.format;
+            const vtOutput = vtFormat
+                .replace('{maliciousCount}', exampleData.virustotal.maliciousCount.toString())
+                .replace('{totalVendors}', exampleData.virustotal.totalVendors.toString())
+                .replace('{harmlessCount}', exampleData.virustotal.harmlessCount.toString())
+                .replace('{suspiciousCount}', exampleData.virustotal.suspiciousCount.toString())
+                .replace('{timeoutCount}', exampleData.virustotal.timeoutCount.toString())
+                .replace('{undetectedCount}', exampleData.virustotal.undetectedCount.toString())
+                .replace('{lastAnalysisDate}', exampleData.virustotal.lastAnalysisDate)
+                .replace('{country}', exampleData.virustotal.country)
+                .replace('{asOwner}', exampleData.virustotal.asOwner)
+                .replace('{asn}', exampleData.virustotal.asn)
+                .replace('{network}', exampleData.virustotal.network)
+                .replace('{tags}', exampleData.virustotal.tags.join(', '));
+            output += `  - VirusTotal: ${vtOutput}\n`;
+        }
+
+        if (this.plugin.settings.outputFormat.abuseipdb.enabled) {
+            const abuseFormat = this.plugin.settings.outputFormat.abuseipdb.format;
+            const abuseOutput = abuseFormat
+                .replace('{confidenceScore}', exampleData.abuseipdb.confidenceScore.toString())
+                .replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported))
+                .replace('{totalReports}', exampleData.abuseipdb.totalReports.toString())
+                .replace('{numDistinctUsers}', exampleData.abuseipdb.numDistinctUsers.toString())
+                .replace('{lastReportedAt}', exampleData.abuseipdb.lastReportedAt)
+                .replace('{isPublic}', exampleData.abuseipdb.isPublic.toString())
+                .replace('{isWhitelisted}', exampleData.abuseipdb.isWhitelisted.toString())
+                .replace('{countryCode}', exampleData.abuseipdb.countryCode)
+                .replace('{countryName}', exampleData.abuseipdb.countryName)
+                .replace('{usageType}', exampleData.abuseipdb.usageType)
+                .replace('{domain}', exampleData.abuseipdb.domain)
+                .replace('{hostnames}', exampleData.abuseipdb.hostnames.join(', '));
+            output += `  - AbuseIPDB: ${abuseOutput}`;
+        }
+
+        return output;
+    }
+
+    private updateExampleOutput() {
+        const exampleContainer = this.containerEl.querySelector('.setting-item-control');
+        if (exampleContainer) {
+            const exampleOutput = exampleContainer.querySelector('.setting-item-description');
+            if (exampleOutput) {
+                exampleOutput.setText(this.getExampleOutput());
+            }
+        }
     }
 }
