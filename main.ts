@@ -76,12 +76,42 @@ export default class IPReputationPlugin extends Plugin {
         const editor = activeView.editor;
         const content = editor.getValue();
         
-        // Regex to match public IPv4 addresses
-        const ipRegex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g;
-        const matches = content.match(ipRegex) || [];
+        // Debug: Log the content being searched
+        console.log('Searching content for IPs:', content);
         
-        // Filter out private/reserved IPs
-        const publicIPs = matches.filter(ip => {
+        // Simple IPv4 regex
+        const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g;
+        
+        // Simpler IPv6 regex that matches the basic structure
+        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/g;
+        
+        // Find all matches
+        const ipv4Matches = content.match(ipv4Regex) || [];
+        
+        // For IPv6, we need to handle the matches more carefully
+        let ipv6Matches: string[] = [];
+        let match;
+        while ((match = ipv6Regex.exec(content)) !== null) {
+            // Get the full match
+            const fullMatch = match[0];
+            
+            // If the match ends with a colon, look ahead for the next part
+            if (fullMatch.endsWith(':')) {
+                const nextPart = content.slice(match.index + fullMatch.length).match(/^[0-9a-fA-F]{1,4}/);
+                if (nextPart) {
+                    ipv6Matches.push(fullMatch + nextPart[0]);
+                }
+            } else {
+                ipv6Matches.push(fullMatch);
+            }
+        }
+        
+        // Debug: Log matches
+        console.log('IPv4 matches:', ipv4Matches);
+        console.log('IPv6 matches:', ipv6Matches);
+        
+        // Filter out private/reserved IPv4s
+        const publicIPv4s = ipv4Matches.filter(ip => {
             const parts = ip.split('.');
             return !(
                 parts[0] === '10' ||
@@ -92,7 +122,30 @@ export default class IPReputationPlugin extends Plugin {
             );
         });
 
-        const uniqueIPs = [...new Set(publicIPs)];
+        // Filter out private/reserved IPv6s
+        const publicIPv6s = ipv6Matches.filter(ip => {
+            const isPrivate = (
+                ip.startsWith('::1') || // localhost
+                ip.startsWith('fe80:') || // link-local
+                ip.startsWith('fc00:') || // unique local
+                ip.startsWith('fd00:') || // unique local
+                ip.startsWith('ff00:') || // multicast
+                ip.startsWith('2001:db8:') // documentation
+            );
+            
+            // Debug: Log IPv6 filtering
+            console.log(`IPv6 ${ip} is ${isPrivate ? 'private' : 'public'}`);
+            return !isPrivate;
+        });
+
+        // Debug: Log filtered results
+        console.log('Public IPv4s:', publicIPv4s);
+        console.log('Public IPv6s:', publicIPv6s);
+
+        const uniqueIPs = [...new Set([...publicIPv4s, ...publicIPv6s])];
+        
+        // Debug: Log final unique IPs
+        console.log('Final unique IPs to check:', uniqueIPs);
         
         if (uniqueIPs.length === 0) {
             new Notice('No public IP addresses found in the current note');

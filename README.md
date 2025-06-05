@@ -1,13 +1,13 @@
 # IP Reputation Analysis Tool for Obsidian
 
-This Obsidian plugin scans your notes for public IPv4 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
+This Obsidian plugin scans your notes for public IPv4 and IPv6 addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
 
 ## Features
 
-- Automatically detects public IPv4 addresses in your notes
+- Automatically detects public IPv4 and IPv6 addresses in your notes
 - Checks IP reputation using VirusTotal and AbuseIPDB APIs
 - Adds inline annotations with reputation data
-- Caches results to minimize API calls
+- Caches results to minimise API calls
 - Configurable cache duration
 - Command palette integration
 
@@ -39,12 +39,12 @@ Before using the plugin, you need to configure your API keys:
 
 Before:
 ```
-Found suspicious IP: 185.220.101.22
+Found suspicious IPs: 185.220.101.22 and 2001:db8:85a3:8d3:1319:8a2e:370:7348
 ```
 
 After running the plugin:
 ```
-Found suspicious IP: 185.220.101.22
+Found suspicious IPs: 185.220.101.22 and 2001:db8:85a3:8d3:1319:8a2e:370:7348
   - VirusTotal: 15/94 vendors flagged as malicious
   - AbuseIPDB: 75% confidence of abuse, last reported 2d ago
 ```
@@ -54,7 +54,7 @@ Found suspicious IP: 185.220.101.22
 This plugin:
 - Sends IP addresses to VirusTotal and AbuseIPDB for reputation checking
 - Stores API keys locally in your Obsidian settings
-- Caches reputation data locally to minimize API calls
+- Caches reputation data locally to minimise API calls
 - Does not collect or store any personal data
 - Does not send any data to third parties other than the configured APIs
 
@@ -70,7 +70,6 @@ If you encounter any issues or have questions:
    - Any error messages
 
 Known Limitations:
-- Only supports IPv4 addresses
 - Requires internet connection
 - API rate limits may apply based on your API key tier
 - Some IP addresses may not have reputation data available
