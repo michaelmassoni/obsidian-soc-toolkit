@@ -1,10 +1,13 @@
 {
     "id": "ip-analysis",
     "name": "IP Reputation Analysis",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "minAppVersion": "0.15.0",
     "description": "Scans notes for public IP addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.",
     "author": "Michael Massoni",
     "authorUrl": "https://github.com/michaelmassoni",
-    "isDesktopOnly": false
+    "isDesktopOnly": false,
+    "styles": [
+        "styles.css"
+    ]
 } 

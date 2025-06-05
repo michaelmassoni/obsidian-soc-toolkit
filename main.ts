@@ -575,35 +575,38 @@ class IPSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
+        containerEl.addClass('ip-reputation-plugin');
 
-        // API Settings Section
-        containerEl.createEl('h2', {text: 'API Settings'});
+        // API Settings section
+        containerEl.createEl('h2', { text: 'API Settings' });
 
         // VirusTotal API Key setting
-        new Setting(containerEl)
+        const vtKeySetting = new Setting(containerEl)
             .setName('VirusTotal API Key')
-            .setDesc('Enter your VirusTotal API key')
-            .addText(text => text
-                .setPlaceholder('Enter your API key')
-                .setValue(this.plugin.settings.virustotalApiKey)
-                .onChange(async (value) => {
-                    this.plugin.settings.virustotalApiKey = value;
-                    await this.plugin.saveSettings();
-                    this.updateExampleOutput();
-                }));
+            .setDesc('Enter your VirusTotal API key');
+        vtKeySetting.controlEl.addClass('api-key-input');
+        vtKeySetting.addText(text => text
+            .setPlaceholder('Enter your API key')
+            .setValue(this.plugin.settings.virustotalApiKey)
+            .onChange(async (value) => {
+                this.plugin.settings.virustotalApiKey = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
 
         // AbuseIPDB API Key setting
-        new Setting(containerEl)
+        const abuseKeySetting = new Setting(containerEl)
             .setName('AbuseIPDB API Key')
-            .setDesc('Enter your AbuseIPDB API key')
-            .addText(text => text
-                .setPlaceholder('Enter your API key')
-                .setValue(this.plugin.settings.abuseipdbApiKey)
-                .onChange(async (value) => {
-                    this.plugin.settings.abuseipdbApiKey = value;
-                    await this.plugin.saveSettings();
-                    this.updateExampleOutput();
-                }));
+            .setDesc('Enter your AbuseIPDB API key');
+        abuseKeySetting.controlEl.addClass('api-key-input');
+        abuseKeySetting.addText(text => text
+            .setPlaceholder('Enter your API key')
+            .setValue(this.plugin.settings.abuseipdbApiKey)
+            .onChange(async (value) => {
+                this.plugin.settings.abuseipdbApiKey = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
 
         // Test API Keys button
         new Setting(containerEl)
@@ -644,114 +647,118 @@ class IPSettingTab extends PluginSettingTab {
                     }
                 }));
 
-        // Output Format Settings
-        containerEl.createEl('h2', { text: 'Output Format Settings' });
-        
-        // Example output
-        const exampleOutput = containerEl.createEl('div', {
-            cls: 'setting-item',
-            attr: {
-                style: 'margin-bottom: 20px;'
-            }
-        });
-        const exampleHeader = exampleOutput.createEl('div', {
-            attr: {
-                style: 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'
-            }
-        });
-        exampleHeader.createEl('div', {
-            text: 'Example output:',
-            attr: {
-                style: 'font-weight: 500;'
-            }
-        });
-        const refreshButton = exampleHeader.createEl('button', {
-            text: '↻',
-            attr: {
-                style: 'padding: 2px 6px; border-radius: 4px; border: 1px solid var(--background-modifier-border); background: var(--background-primary); cursor: pointer;'
-            }
-        });
-        refreshButton.addEventListener('click', () => {
-            exampleContent.setText(this.getExampleOutput());
-        });
-        const exampleContent = exampleOutput.createEl('div', {
-            cls: 'setting-item-description',
-            text: this.getExampleOutput()
-        });
-        exampleContent.style.marginTop = '8px';
-        exampleContent.style.padding = '8px';
-        exampleContent.style.backgroundColor = 'var(--background-secondary)';
-        exampleContent.style.borderRadius = '4px';
-        exampleContent.style.fontFamily = 'monospace';
-        exampleContent.style.whiteSpace = 'pre';
+        // Output Settings Section
+        containerEl.createEl('h2', { text: 'Output Settings', cls: 'settings-section-header' });
+
+        // Add example output section
+        containerEl.createEl('h3', { text: 'Example Output' });
+        const exampleContainer = containerEl.createDiv('example-container');
+        const exampleContent = exampleContainer.createDiv('example-content');
+        this.updateExampleOutput();
+
+        // Add VirusTotal section heading
+        containerEl.createEl('h3', { text: 'VirusTotal' });
 
         // VirusTotal Output Format
         const vtSetting = new Setting(containerEl)
-            .setName('VirusTotal Output')
-            .setDesc('Customise how VirusTotal data is displayed')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.outputFormat.virustotal.enabled)
-                .onChange(async (value) => {
-                    this.plugin.settings.outputFormat.virustotal.enabled = value;
-                    await this.plugin.saveSettings();
-                    this.updateExampleOutput();
-                }));
+            .setName('Enable VirusTotal');
+        vtSetting.controlEl.addClass('toggle-switch');
+        vtSetting.addToggle(toggle => toggle
+            .setValue(this.plugin.settings.outputFormat.virustotal.enabled)
+            .onChange(async (value) => {
+                this.plugin.settings.outputFormat.virustotal.enabled = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
 
-        const vtFormatContainer = containerEl.createDiv('setting-item-control');
-        const vtFormatInput = vtFormatContainer.createEl('input', {
-            type: 'text',
-            value: this.plugin.settings.outputFormat.virustotal.format,
-            placeholder: 'Enter format string'
-        });
-        vtFormatInput.style.width = '100%';
-        vtFormatInput.style.marginTop = '8px';
-        vtFormatInput.addEventListener('input', async (e) => {
-            this.plugin.settings.outputFormat.virustotal.format = (e.target as HTMLInputElement).value;
-            await this.plugin.saveSettings();
-            this.updateExampleOutput();
+        // Add VirusTotal format input as a new setting
+        const vtFormatSetting = new Setting(containerEl)
+            .setName('Customise Output')
+            .setDesc('Customise the output using the available fields below');
+        vtFormatSetting.controlEl.addClass('format-input-container');
+        vtFormatSetting.addText(text => text
+            .setValue(this.plugin.settings.outputFormat.virustotal.format)
+            .onChange(async (value) => {
+                this.plugin.settings.outputFormat.virustotal.format = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
+
+        // Add VirusTotal field tags
+        const vtFieldTags = containerEl.createDiv('field-tags');
+        const vtFields = [
+            { name: '{maliciousCount}', desc: 'Number of vendors that flagged the IP as malicious' },
+            { name: '{totalVendors}', desc: 'Total number of vendors that analyzed the IP' },
+            { name: '{harmlessCount}', desc: 'Number of vendors that flagged the IP as harmless' },
+            { name: '{suspiciousCount}', desc: 'Number of vendors that flagged the IP as suspicious' },
+            { name: '{timeoutCount}', desc: 'Number of vendors that timed out while analyzing' },
+            { name: '{undetectedCount}', desc: 'Number of vendors that didn\'t detect anything' },
+            { name: '{lastAnalysisDate}', desc: 'Date of the last analysis' },
+            { name: '{country}', desc: 'Country where the IP is located' },
+            { name: '{asOwner}', desc: 'Autonomous System owner' },
+            { name: '{asn}', desc: 'Autonomous System Number' },
+            { name: '{network}', desc: 'Network/CIDR block' },
+            { name: '{tags}', desc: 'List of tags associated with the IP' }
+        ];
+        vtFields.forEach(field => {
+            const tag = vtFieldTags.createEl('span', {
+                text: field.name,
+                cls: 'field-tag',
+                attr: { 'data-description': field.desc }
+            });
         });
 
-        // Add VirusTotal field descriptions
-        const vtDescContainer = containerEl.createDiv('setting-item-description');
-        vtDescContainer.innerHTML = this.plugin.settings.outputFormat.virustotal.description.replace(/\n/g, '<br>');
-        vtDescContainer.style.marginTop = '8px';
-        vtDescContainer.style.padding = '8px';
-        vtDescContainer.style.backgroundColor = 'var(--background-secondary)';
-        vtDescContainer.style.borderRadius = '4px';
+        // Add AbuseIPDB section heading
+        containerEl.createEl('h3', { text: 'AbuseIPDB' });
 
         // AbuseIPDB Output Format
         const abuseSetting = new Setting(containerEl)
-            .setName('AbuseIPDB Output')
-            .setDesc('Customise how AbuseIPDB data is displayed')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.outputFormat.abuseipdb.enabled)
-                .onChange(async (value) => {
-                    this.plugin.settings.outputFormat.abuseipdb.enabled = value;
-                    await this.plugin.saveSettings();
-                    this.updateExampleOutput();
-                }));
+            .setName('Enable AbuseIPDB');
+        abuseSetting.controlEl.addClass('toggle-switch');
+        abuseSetting.addToggle(toggle => toggle
+            .setValue(this.plugin.settings.outputFormat.abuseipdb.enabled)
+            .onChange(async (value) => {
+                this.plugin.settings.outputFormat.abuseipdb.enabled = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
 
-        const abuseFormatContainer = containerEl.createDiv('setting-item-control');
-        const abuseFormatInput = abuseFormatContainer.createEl('input', {
-            type: 'text',
-            value: this.plugin.settings.outputFormat.abuseipdb.format,
-            placeholder: 'Enter format string'
-        });
-        abuseFormatInput.style.width = '100%';
-        abuseFormatInput.style.marginTop = '8px';
-        abuseFormatInput.addEventListener('input', async (e) => {
-            this.plugin.settings.outputFormat.abuseipdb.format = (e.target as HTMLInputElement).value;
-            await this.plugin.saveSettings();
-            this.updateExampleOutput();
-        });
+        // Add AbuseIPDB format input as a new setting
+        const abuseFormatSetting = new Setting(containerEl)
+            .setName('Customise Output')
+            .setDesc('Customise the output using the available fields below');
+        abuseFormatSetting.controlEl.addClass('format-input-container');
+        abuseFormatSetting.addText(text => text
+            .setValue(this.plugin.settings.outputFormat.abuseipdb.format)
+            .onChange(async (value) => {
+                this.plugin.settings.outputFormat.abuseipdb.format = value;
+                await this.plugin.saveSettings();
+                this.updateExampleOutput();
+            }));
 
-        // Add AbuseIPDB field descriptions
-        const abuseDescContainer = containerEl.createDiv('setting-item-description');
-        abuseDescContainer.innerHTML = this.plugin.settings.outputFormat.abuseipdb.description.replace(/\n/g, '<br>');
-        abuseDescContainer.style.marginTop = '8px';
-        abuseDescContainer.style.padding = '8px';
-        abuseDescContainer.style.backgroundColor = 'var(--background-secondary)';
-        abuseDescContainer.style.borderRadius = '4px';
+        // Add AbuseIPDB field tags
+        const abuseFieldTags = containerEl.createDiv('field-tags');
+        const abuseFields = [
+            { name: '{confidenceScore}', desc: 'Confidence score of abuse (0-100)' },
+            { name: '{lastReported}', desc: 'Time since the IP was last reported' },
+            { name: '{totalReports}', desc: 'Total number of reports for this IP' },
+            { name: '{numDistinctUsers}', desc: 'Number of distinct users who reported this IP' },
+            { name: '{lastReportedAt}', desc: 'Raw timestamp of the last report' },
+            { name: '{isPublic}', desc: 'Whether the IP is public' },
+            { name: '{isWhitelisted}', desc: 'Whether the IP is whitelisted' },
+            { name: '{countryCode}', desc: 'Two-letter country code' },
+            { name: '{countryName}', desc: 'Full country name' },
+            { name: '{usageType}', desc: 'Type of usage (e.g., "Data Center", "ISP")' },
+            { name: '{domain}', desc: 'Associated domain name' },
+            { name: '{hostnames}', desc: 'List of associated hostnames' }
+        ];
+        abuseFields.forEach(field => {
+            const tag = abuseFieldTags.createEl('span', {
+                text: field.name,
+                cls: 'field-tag',
+                attr: { 'data-description': field.desc }
+            });
+        });
     }
 
     private getExampleOutput(): string {
@@ -830,12 +837,9 @@ class IPSettingTab extends PluginSettingTab {
     }
 
     private updateExampleOutput() {
-        const exampleContainer = this.containerEl.querySelector('.setting-item-control');
-        if (exampleContainer) {
-            const exampleOutput = exampleContainer.querySelector('.setting-item-description');
-            if (exampleOutput) {
-                exampleOutput.setText(this.getExampleOutput());
-            }
+        const exampleContent = this.containerEl.querySelector('.example-content');
+        if (exampleContent) {
+            exampleContent.setText(this.getExampleOutput());
         }
     }
 }

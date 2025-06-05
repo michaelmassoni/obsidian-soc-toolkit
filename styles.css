@@ -1,0 +1,113 @@
+/* Plugin styles */
+.ip-reputation-plugin .example-container {
+    margin: 16px 0;
+    padding: 12px;
+    background-color: var(--background-secondary);
+    border-radius: 4px;
+}
+
+.ip-reputation-plugin .example-content {
+    font-family: var(--font-monospace);
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--text-muted);
+}
+
+.ip-reputation-plugin .format-input-container {
+    width: 100%;
+}
+
+.ip-reputation-plugin .format-input-container input {
+    width: 100%;
+    font-family: var(--font-monospace);
+}
+
+.ip-reputation-plugin .field-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.ip-reputation-plugin .field-tag {
+    background-color: var(--background-secondary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    color: var(--text-muted);
+    cursor: help;
+    position: relative;
+}
+
+.ip-reputation-plugin .field-tag::before {
+    content: "?";
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    line-height: 14px;
+    text-align: center;
+    background-color: var(--text-muted);
+    color: var(--background-primary);
+    border-radius: 50%;
+    font-size: 10px;
+    margin-right: 4px;
+    font-family: var(--font-text);
+}
+
+.ip-reputation-plugin .field-tag:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.ip-reputation-plugin .field-tag:hover::after {
+    content: attr(data-description);
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    padding: 8px;
+    border-radius: 4px;
+    font-size: 0.9em;
+    white-space: nowrap;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    pointer-events: none;
+    min-width: 200px;
+    max-width: 300px;
+    transform: none;
+    width: max-content;
+    box-sizing: border-box;
+}
+
+.ip-reputation-plugin .setting-item {
+    padding: 8px 0;
+}
+
+.ip-reputation-plugin .setting-item-control {
+    margin-top: 8px;
+}
+
+.ip-reputation-plugin .api-key-input {
+    width: 400px;
+}
+
+.ip-reputation-plugin .api-key-input input {
+    width: 100%;
+    font-family: var(--font-monospace);
+}
+
+.ip-reputation-plugin h2 {
+    margin: 32px 0 16px 0;
+    font-size: 1.4em;
+    font-weight: 600;
+    color: var(--text-normal);
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 8px;
+}
+
+.ip-reputation-plugin h3 {
+    margin: 24px 0 12px 0;
+    font-size: 1.1em;
+    color: var(--text-muted);
+} 

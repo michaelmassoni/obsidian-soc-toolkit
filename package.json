@@ -1,6 +1,6 @@
 {
     "name": "obsidian-ip-reputation",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "Obsidian plugin for checking IP reputation",
     "main": "main.js",
     "scripts": {
