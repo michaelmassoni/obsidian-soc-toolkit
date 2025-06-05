@@ -13,8 +13,11 @@ An Obsidian plugin that scans your note for public IP addresses and checks their
 ## Installation
 
 1. Download the latest release from the releases page
-2. Extract the zip file into your Obsidian vault's `.obsidian/plugins` folder
+2. Create a folder in your Obsidian vault's `.obsidian/plugins` titled "ip-reputation"
+2. Move the downloaded files into this folder
 3. Enable the plugin in Obsidian settings
+
+This plugin has been submitted for the Obsidian Community Plugins list, once approved this will be streamlined and automatic updates will be available!
 
 ## Configuration
 
