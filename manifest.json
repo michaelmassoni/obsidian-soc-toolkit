@@ -1,9 +1,9 @@
 {
-    "id": "ip-analysis",
-    "name": "IP Reputation Analysis",
-    "version": "1.3.0",
+    "id": "soc-toolkit",
+    "name": "SOC Toolkit",
+    "version": "1.4.0",
     "minAppVersion": "0.15.0",
-    "description": "Scans notes for public IP addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.",
+    "description": "A collection of tools for SOC analysts.",
     "author": "Michael Massoni",
     "authorUrl": "https://github.com/michaelmassoni",
     "isDesktopOnly": false,
