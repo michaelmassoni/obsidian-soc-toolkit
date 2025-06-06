@@ -37,6 +37,206 @@ interface IPReputationData {
 }
 
 /**
+ * Country code to name mapping
+ */
+const COUNTRY_CODES: { [key: string]: string } = {
+    'AF': 'Afghanistan',
+    'AL': 'Albania',
+    'DZ': 'Algeria',
+    'AD': 'Andorra',
+    'AO': 'Angola',
+    'AG': 'Antigua and Barbuda',
+    'AR': 'Argentina',
+    'AM': 'Armenia',
+    'AU': 'Australia',
+    'AT': 'Austria',
+    'AZ': 'Azerbaijan',
+    'BS': 'Bahamas',
+    'BH': 'Bahrain',
+    'BD': 'Bangladesh',
+    'BB': 'Barbados',
+    'BY': 'Belarus',
+    'BE': 'Belgium',
+    'BZ': 'Belize',
+    'BJ': 'Benin',
+    'BT': 'Bhutan',
+    'BO': 'Bolivia',
+    'BA': 'Bosnia and Herzegovina',
+    'BW': 'Botswana',
+    'BR': 'Brazil',
+    'BN': 'Brunei',
+    'BG': 'Bulgaria',
+    'BF': 'Burkina Faso',
+    'BI': 'Burundi',
+    'KH': 'Cambodia',
+    'CM': 'Cameroon',
+    'CA': 'Canada',
+    'CV': 'Cape Verde',
+    'CF': 'Central African Republic',
+    'TD': 'Chad',
+    'CL': 'Chile',
+    'CN': 'China',
+    'CO': 'Colombia',
+    'KM': 'Comoros',
+    'CG': 'Congo',
+    'CR': 'Costa Rica',
+    'HR': 'Croatia',
+    'CU': 'Cuba',
+    'CY': 'Cyprus',
+    'CZ': 'Czech Republic',
+    'DK': 'Denmark',
+    'DJ': 'Djibouti',
+    'DM': 'Dominica',
+    'DO': 'Dominican Republic',
+    'EC': 'Ecuador',
+    'EG': 'Egypt',
+    'SV': 'El Salvador',
+    'GQ': 'Equatorial Guinea',
+    'ER': 'Eritrea',
+    'EE': 'Estonia',
+    'ET': 'Ethiopia',
+    'FJ': 'Fiji',
+    'FI': 'Finland',
+    'FR': 'France',
+    'GA': 'Gabon',
+    'GM': 'Gambia',
+    'GE': 'Georgia',
+    'DE': 'Germany',
+    'GH': 'Ghana',
+    'GR': 'Greece',
+    'GD': 'Grenada',
+    'GT': 'Guatemala',
+    'GN': 'Guinea',
+    'GW': 'Guinea-Bissau',
+    'GY': 'Guyana',
+    'HK': 'Hong Kong',
+    'HT': 'Haiti',
+    'HN': 'Honduras',
+    'HU': 'Hungary',
+    'IS': 'Iceland',
+    'IN': 'India',
+    'ID': 'Indonesia',
+    'IR': 'Iran',
+    'IQ': 'Iraq',
+    'IE': 'Ireland',
+    'IL': 'Israel',
+    'IT': 'Italy',
+    'JM': 'Jamaica',
+    'JP': 'Japan',
+    'JO': 'Jordan',
+    'KZ': 'Kazakhstan',
+    'KE': 'Kenya',
+    'KI': 'Kiribati',
+    'KP': 'North Korea',
+    'KR': 'South Korea',
+    'KW': 'Kuwait',
+    'KG': 'Kyrgyzstan',
+    'LA': 'Laos',
+    'LV': 'Latvia',
+    'LB': 'Lebanon',
+    'LS': 'Lesotho',
+    'LR': 'Liberia',
+    'LY': 'Libya',
+    'LI': 'Liechtenstein',
+    'LT': 'Lithuania',
+    'LU': 'Luxembourg',
+    'MG': 'Madagascar',
+    'MW': 'Malawi',
+    'MY': 'Malaysia',
+    'MV': 'Maldives',
+    'ML': 'Mali',
+    'MT': 'Malta',
+    'MH': 'Marshall Islands',
+    'MR': 'Mauritania',
+    'MU': 'Mauritius',
+    'MX': 'Mexico',
+    'FM': 'Micronesia',
+    'MD': 'Moldova',
+    'MC': 'Monaco',
+    'MN': 'Mongolia',
+    'ME': 'Montenegro',
+    'MA': 'Morocco',
+    'MZ': 'Mozambique',
+    'MM': 'Myanmar',
+    'NA': 'Namibia',
+    'NR': 'Nauru',
+    'NP': 'Nepal',
+    'NL': 'Netherlands',
+    'NZ': 'New Zealand',
+    'NI': 'Nicaragua',
+    'NE': 'Niger',
+    'NG': 'Nigeria',
+    'NO': 'Norway',
+    'OM': 'Oman',
+    'PK': 'Pakistan',
+    'PW': 'Palau',
+    'PS': 'Palestine',
+    'PA': 'Panama',
+    'PG': 'Papua New Guinea',
+    'PY': 'Paraguay',
+    'PE': 'Peru',
+    'PH': 'Philippines',
+    'PL': 'Poland',
+    'PT': 'Portugal',
+    'QA': 'Qatar',
+    'RO': 'Romania',
+    'RU': 'Russia',
+    'RW': 'Rwanda',
+    'KN': 'Saint Kitts and Nevis',
+    'LC': 'Saint Lucia',
+    'VC': 'Saint Vincent and the Grenadines',
+    'WS': 'Samoa',
+    'SM': 'San Marino',
+    'ST': 'Sao Tome and Principe',
+    'SA': 'Saudi Arabia',
+    'SN': 'Senegal',
+    'RS': 'Serbia',
+    'SC': 'Seychelles',
+    'SL': 'Sierra Leone',
+    'SG': 'Singapore',
+    'SK': 'Slovakia',
+    'SI': 'Slovenia',
+    'SB': 'Solomon Islands',
+    'SO': 'Somalia',
+    'ZA': 'South Africa',
+    'SS': 'South Sudan',
+    'ES': 'Spain',
+    'LK': 'Sri Lanka',
+    'SD': 'Sudan',
+    'SR': 'Suriname',
+    'SZ': 'Swaziland',
+    'SE': 'Sweden',
+    'CH': 'Switzerland',
+    'SY': 'Syria',
+    'TW': 'Taiwan',
+    'TJ': 'Tajikistan',
+    'TZ': 'Tanzania',
+    'TH': 'Thailand',
+    'TL': 'Timor-Leste',
+    'TG': 'Togo',
+    'TO': 'Tonga',
+    'TT': 'Trinidad and Tobago',
+    'TN': 'Tunisia',
+    'TR': 'Turkey',
+    'TM': 'Turkmenistan',
+    'TV': 'Tuvalu',
+    'UG': 'Uganda',
+    'UA': 'Ukraine',
+    'AE': 'United Arab Emirates',
+    'GB': 'United Kingdom',
+    'US': 'United States',
+    'UY': 'Uruguay',
+    'UZ': 'Uzbekistan',
+    'VU': 'Vanuatu',
+    'VA': 'Vatican City',
+    'VE': 'Venezuela',
+    'VN': 'Vietnam',
+    'YE': 'Yemen',
+    'ZM': 'Zambia',
+    'ZW': 'Zimbabwe'
+};
+
+/**
  * Plugin settings interface
  */
 interface IPSettings {
@@ -330,7 +530,11 @@ export default class IPReputationPlugin extends Plugin {
             const now = Date.now();
             const cacheAge = (now - Math.max(cached.virustotal.lastChecked, cached.abuseipdb.lastChecked)) / (1000 * 60 * 60);
             if (cacheAge < this.settings.cacheDuration) {
-                return cached;
+                // Return a new object to avoid modifying the cached data
+                return {
+                    virustotal: { ...cached.virustotal },
+                    abuseipdb: { ...cached.abuseipdb }
+                };
             }
         }
 
@@ -372,14 +576,18 @@ export default class IPReputationPlugin extends Plugin {
                     isPublic: abuseDataObj.isPublic || false,
                     isWhitelisted: abuseDataObj.isWhitelisted || false,
                     countryCode: abuseDataObj.countryCode || '',
-                    countryName: abuseDataObj.countryName || '',
+                    countryName: abuseDataObj.countryCode ? (COUNTRY_CODES[abuseDataObj.countryCode] || abuseDataObj.countryCode) : '',
                     usageType: abuseDataObj.usageType || '',
                     domain: abuseDataObj.domain || '',
                     hostnames: abuseDataObj.hostnames || []
                 }
             };
 
-            this.ipCache.set(ip, reputation);
+            // Store a copy of the data in cache
+            this.ipCache.set(ip, {
+                virustotal: { ...reputation.virustotal },
+                abuseipdb: { ...reputation.abuseipdb }
+            });
             return reputation;
         } catch (error) {
             console.error(`Error getting reputation for IP ${ip}:`, error);
@@ -442,6 +650,9 @@ export default class IPReputationPlugin extends Plugin {
             if (!data) {
                 throw new Error('Empty response from AbuseIPDB API');
             }
+
+            // Debug log the full response
+            console.log('AbuseIPDB API response:', JSON.stringify(data, null, 2));
 
             return data;
         } catch (error) {
@@ -524,15 +735,14 @@ export default class IPReputationPlugin extends Plugin {
                         .replace('{asOwner}', reputation.virustotal.asOwner)
                         .replace('{asn}', reputation.virustotal.asn)
                         .replace('{network}', reputation.virustotal.network)
-                        .replace('{tags}', reputation.virustotal.tags.join(', '));
+                        .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
                     annotation += `  - VirusTotal: ${vtOutput}\n`;
                 }
 
                 if (this.settings.outputFormat.abuseipdb.enabled) {
                     const abuseFormat = this.settings.outputFormat.abuseipdb.format;
-                    const abuseOutput = abuseFormat
+                    let abuseOutput = abuseFormat
                         .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
-                        .replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported))
                         .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
                         .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
                         .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
@@ -543,6 +753,15 @@ export default class IPReputationPlugin extends Plugin {
                         .replace('{usageType}', reputation.abuseipdb.usageType)
                         .replace('{domain}', reputation.abuseipdb.domain)
                         .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
+
+                    // Only include lastReported if there are reports
+                    if (reputation.abuseipdb.totalReports > 0) {
+                        abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
+                    } else {
+                        // Remove the entire "last reported X" phrase when there are no reports
+                        abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+                    }
+
                     annotation += `  - AbuseIPDB: ${abuseOutput}`;
                 }
 
@@ -902,9 +1121,8 @@ class IPSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.outputFormat.abuseipdb.enabled) {
             const abuseFormat = this.plugin.settings.outputFormat.abuseipdb.format;
-            const abuseOutput = abuseFormat
+            let abuseOutput = abuseFormat
                 .replace('{confidenceScore}', exampleData.abuseipdb.confidenceScore.toString())
-                .replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported))
                 .replace('{totalReports}', exampleData.abuseipdb.totalReports.toString())
                 .replace('{numDistinctUsers}', exampleData.abuseipdb.numDistinctUsers.toString())
                 .replace('{lastReportedAt}', exampleData.abuseipdb.lastReportedAt)
@@ -915,6 +1133,15 @@ class IPSettingTab extends PluginSettingTab {
                 .replace('{usageType}', exampleData.abuseipdb.usageType)
                 .replace('{domain}', exampleData.abuseipdb.domain)
                 .replace('{hostnames}', exampleData.abuseipdb.hostnames.join(', '));
+
+                // Only include lastReported if there are reports
+                if (exampleData.abuseipdb.totalReports > 0) {
+                    abuseOutput = abuseOutput.replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported));
+                } else {
+                    // Remove the entire "last reported X" phrase when there are no reports
+                    abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+                }
+
             output += `  - AbuseIPDB: ${abuseOutput}`;
         }
 
