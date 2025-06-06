@@ -1,21 +1,24 @@
-# IP Reputation Analysis Tool for Obsidian
+# SOC Toolkit for Obsidian
 
-An Obsidian plugin that scans your note for public IP addresses and checks their reputation using VirusTotal and AbuseIPDB APIs.
+An Obsidian plugin that provides a collection of tools for SOC analysts and cybersecurity professionals. Currently includes IP reputation analysis using VirusTotal and AbuseIPDB APIs, with more features planned.
 
 ## Features
 
-- Scans notes for both IPv4 and IPv6 addresses
-- Checks IP reputation using VirusTotal and AbuseIPDB APIs
-- Caches results to minimize API calls
-- Customisable output format for both APIs
-- Example output preview
+- **IP Reputation Analysis**
+  - Scans notes for both IPv4 and IPv6 addresses
+  - Checks IP reputation using VirusTotal and AbuseIPDB APIs
+  - Caches results to minimize API calls
+  - Customisable output format for both APIs
+  - Example output preview
+  - Right-click context menu for quick IP checks
+  - Command palette support for checking highlighted IPs
 
 ## Installation
 
 1. Download the latest release from the releases page
-2. Create a new folder in your Obsidian vault's `.obsidian/plugins` folder titled "ip-reputation"
-2. Move the downloaded files into this folder
-3. Enable the plugin in Obsidian settings
+2. Create a new folder in your Obsidian vault's `.obsidian/plugins` folder titled "soc-toolkit"
+3. Move the downloaded files into this folder
+4. Enable the plugin in Obsidian settings
 
 This plugin has been submitted for the Obsidian Community Plugins list, once approved this will be streamlined and automatic updates will be available!
 
@@ -26,16 +29,22 @@ Before using the plugin, you need to configure your API keys:
 1. Get a VirusTotal API key from [VirusTotal](https://www.virustotal.com/gui/join-us)
 2. Get an AbuseIPDB API key from [AbuseIPDB](https://www.abuseipdb.com/account/api)
 3. Open Obsidian settings
-4. Go to Community Plugins > IP Reputation Checker
+4. Go to Community Plugins > SOC Toolkit
 5. Enter your API keys
 6. (Optional) Adjust the cache duration (default: 24 hours)
+7. (Recommended) Set your desired keybindings in Obsidian Hotkeys page
 
 ## Usage
 
+### IP Reputation Analysis
+
 1. Open a note containing IP addresses
-2. Open the command palette (Ctrl/Cmd + P)
-3. Search for "Check IP Reputation in Current Note"
-4. The plugin will scan the note and add reputation data below each IP address
+2. Use one of the following methods to check IP reputation:
+   - Press your defined hotkey for "Check IP Reputation in Current Note"
+   - Highlight IPs you wish to check, and then press your defined hotkey for "Check IP Reputation in Highlighted Area""
+   - Highlight IPs you wish to check, and then open right-click menu and select "Check IP Reputation" 
+   - Open the command palette (Ctrl/Cmd + P) and search for "Check IP Reputation in Current Note"
+3. The plugin will add reputation data below each IP address. You can configure the output in the plugin settings.
 
 ## Example
 
@@ -62,34 +71,19 @@ IPs involved in incident:
 This plugin:
 - Sends IP addresses to VirusTotal and AbuseIPDB for reputation checking
 - Stores API keys locally in your Obsidian settings
-- Caches reputation data locally to minimise API calls
-- Does not collect or store any personal data
-- Does not send any data to third parties other than the configured APIs
+- Caches results locally to minimise API calls
 
-## Support
+## Roadmap
 
-If you encounter any issues or have questions:
-1. Check the [GitHub Issues](https://github.com/michaelmassoni/obsidian-ip-tool/issues) page
-2. Create a new issue if your problem isn't already reported
-3. Include:
-   - Obsidian version
-   - Plugin version
-   - Steps to reproduce
-   - Any error messages
+- [ ] IP/URL defanging
+- [ ] Domain/URL reputation analysis
+- [ ] File hash analysis
+- [ ] More to come...
 
-Known Limitations:
-- Requires internet connection
-- API rate limits may apply based on your API key tier
-- Some IP addresses may not have reputation data available
+## Contributing
 
-## Development
-
-1. Clone this repository
-2. Run `npm install` to install dependencies
-3. Run `npm run dev` to start development mode
-4. Make your changes
-5. Run `npm run build` to create a production build
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-GPLv3 License 
+This project is licensed under the GPLv3 License - see the LICENSE file for details. 

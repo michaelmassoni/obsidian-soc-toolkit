@@ -1,35 +1,35 @@
 /* Plugin styles */
-.ip-reputation-plugin .example-container {
+.soc-toolkit-plugin .example-container {
     margin: 16px 0;
     padding: 12px;
     background-color: var(--background-secondary);
     border-radius: 4px;
 }
 
-.ip-reputation-plugin .example-content {
+.soc-toolkit-plugin .example-content {
     font-family: var(--font-monospace);
     white-space: pre-wrap;
     word-break: break-all;
     color: var(--text-muted);
 }
 
-.ip-reputation-plugin .format-input-container {
+.soc-toolkit-plugin .format-input-container {
     width: 100%;
 }
 
-.ip-reputation-plugin .format-input-container input {
+.soc-toolkit-plugin .format-input-container input {
     width: 100%;
     font-family: var(--font-monospace);
 }
 
-.ip-reputation-plugin .field-tags {
+.soc-toolkit-plugin .field-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 8px;
 }
 
-.ip-reputation-plugin .field-tag {
+.soc-toolkit-plugin .field-tag {
     background-color: var(--background-secondary);
     padding: 4px 8px;
     border-radius: 4px;
@@ -40,7 +40,7 @@
     position: relative;
 }
 
-.ip-reputation-plugin .field-tag::before {
+.soc-toolkit-plugin .field-tag::before {
     content: "?";
     display: inline-block;
     width: 14px;
@@ -55,11 +55,11 @@
     font-family: var(--font-text);
 }
 
-.ip-reputation-plugin .field-tag:hover {
+.soc-toolkit-plugin .field-tag:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.ip-reputation-plugin .field-tag:hover::after {
+.soc-toolkit-plugin .field-tag:hover::after {
     content: attr(data-description);
     position: absolute;
     bottom: 100%;
@@ -80,24 +80,24 @@
     box-sizing: border-box;
 }
 
-.ip-reputation-plugin .setting-item {
+.soc-toolkit-plugin .setting-item {
     padding: 8px 0;
 }
 
-.ip-reputation-plugin .setting-item-control {
+.soc-toolkit-plugin .setting-item-control {
     margin-top: 8px;
 }
 
-.ip-reputation-plugin .api-key-input {
+.soc-toolkit-plugin .api-key-input {
     width: 400px;
 }
 
-.ip-reputation-plugin .api-key-input input {
+.soc-toolkit-plugin .api-key-input input {
     width: 100%;
     font-family: var(--font-monospace);
 }
 
-.ip-reputation-plugin h2 {
+.soc-toolkit-plugin h2 {
     margin: 32px 0 16px 0;
     font-size: 1.4em;
     font-weight: 600;
@@ -106,7 +106,7 @@
     padding-bottom: 8px;
 }
 
-.ip-reputation-plugin h3 {
+.soc-toolkit-plugin h3 {
     margin: 24px 0 12px 0;
     font-size: 1.1em;
     color: var(--text-muted);
