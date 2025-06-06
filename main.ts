@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, request } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, request, Menu, MenuItem } from 'obsidian';
 
 /**
  * Interface for storing IP reputation data from both VirusTotal and AbuseIPDB
@@ -118,6 +118,91 @@ export default class IPReputationPlugin extends Plugin {
             name: 'Check IP Reputation in Current Note',
             callback: () => this.checkIPReputation()
         });
+
+        // Add command to check IP reputation in highlighted area
+        this.addCommand({
+            id: 'check-ip-reputation-highlighted',
+            name: 'Check IP Reputation in Highlighted Area',
+            callback: async () => {
+                const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+                if (!activeView) {
+                    new Notice('No active note found');
+                    return;
+                }
+                const editor = activeView.editor;
+                const selectedText = editor.getSelection();
+                if (!selectedText) {
+                    new Notice('No text selected');
+                    return;
+                }
+
+                // Split selection into lines and process each line
+                const lines = selectedText.split('\n');
+                let checkedCount = 0;
+                let errorCount = 0;
+
+                for (const line of lines) {
+                    // Sanitize each line: remove leading '-' and whitespace
+                    const sanitized = line.replace(/^[-\s]+/, '').trim();
+                    if (!sanitized) continue;
+
+                    // Simple IPv4 regex for quick check
+                    const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
+                    // Simple IPv6 regex for quick check
+                    const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/;
+
+                    if (ipv4Regex.test(sanitized) || ipv6Regex.test(sanitized)) {
+                        try {
+                            const reputation = await this.getIPReputation(sanitized);
+                            this.updateNoteWithReputation(editor, sanitized, reputation);
+                            checkedCount++;
+                        } catch (error) {
+                            console.error(`Error checking IP ${sanitized}:`, error);
+                            errorCount++;
+                        }
+                    }
+                }
+
+                if (checkedCount > 0 || errorCount > 0) {
+                    new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
+                } else {
+                    new Notice('No valid IP addresses found in selection');
+                }
+            }
+        });
+
+        // Add context menu item for selected text
+        this.registerEvent(
+            this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor, view: MarkdownView) => {
+                const selectedText = editor.getSelection();
+                if (selectedText) {
+                    // Sanitize selection: remove leading '-' and whitespace
+                    const sanitized = selectedText.replace(/^[-\s]+/, '').trim();
+                    // Simple IPv4 regex for quick check
+                    const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
+                    // Simple IPv6 regex for quick check
+                    const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/;
+                    
+                    if (ipv4Regex.test(sanitized) || ipv6Regex.test(sanitized)) {
+                        menu.addItem((item: MenuItem) => {
+                            item
+                                .setTitle('Check IP Reputation')
+                                .setIcon('search')
+                                .onClick(async () => {
+                                    try {
+                                        const reputation = await this.getIPReputation(sanitized);
+                                        this.updateNoteWithReputation(editor, sanitized, reputation);
+                                        new Notice(`Checked reputation for ${sanitized}`);
+                                    } catch (error) {
+                                        console.error(`Error checking IP ${sanitized}:`, error);
+                                        new Notice(`Error checking IP ${sanitized}`);
+                                    }
+                                });
+                        });
+                    }
+                }
+            })
+        );
 
         // Add settings tab
         this.addSettingTab(new IPSettingTab(this.app, this));
@@ -575,7 +660,7 @@ class IPSettingTab extends PluginSettingTab {
     display(): void {
         const {containerEl} = this;
         containerEl.empty();
-        containerEl.addClass('ip-reputation-plugin');
+        containerEl.addClass('soc-toolkit-plugin');
 
         // API Settings section
         containerEl.createEl('h2', { text: 'API Settings' });
