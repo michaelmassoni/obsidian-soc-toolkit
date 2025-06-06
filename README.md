@@ -7,7 +7,7 @@ An Obsidian plugin that provides a collection of tools for SOC analysts and cybe
 - **IP Reputation Analysis**
   - Scans notes for both IPv4 and IPv6 addresses
   - Checks IP reputation using VirusTotal and AbuseIPDB APIs
-  - Caches results to minimize API calls
+  - Caches results to minimise API calls
   - Customisable output format for both APIs
   - Example output preview
   - Right-click context menu for quick IP checks
@@ -20,7 +20,7 @@ An Obsidian plugin that provides a collection of tools for SOC analysts and cybe
 3. Move the downloaded files into this folder
 4. Enable the plugin in Obsidian settings
 
-This plugin has been submitted for the Obsidian Community Plugins list, once approved this will be streamlined and automatic updates will be available!
+NOTE: This plugin has been submitted for the Obsidian Community Plugins list, once approved this will be streamlined and automatic updates will be available!
 
 ## Configuration
 
@@ -79,10 +79,6 @@ This plugin:
 - [ ] Domain/URL reputation analysis
 - [ ] File hash analysis
 - [ ] More to come...
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
