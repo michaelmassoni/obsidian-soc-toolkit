@@ -243,6 +243,7 @@ interface IPSettings {
     virustotalApiKey: string;
     abuseipdbApiKey: string;
     cacheDuration: number; // in hours
+    defangingMethod: 'all-dots' | 'last-dot'; // new setting
     outputFormat: {
         virustotal: {
             enabled: boolean;
@@ -264,6 +265,7 @@ const DEFAULT_SETTINGS: IPSettings = {
     virustotalApiKey: '',
     abuseipdbApiKey: '',
     cacheDuration: 24,
+    defangingMethod: 'all-dots', // default to replacing all dots
     outputFormat: {
         virustotal: {
             enabled: true,
@@ -340,63 +342,66 @@ export default class IPReputationPlugin extends Plugin {
                 const lines = selectedText.split('\n');
                 let checkedCount = 0;
                 let errorCount = 0;
-
                 for (const line of lines) {
-                    // Sanitize each line: remove leading '-' and whitespace
-                    const sanitized = line.replace(/^[-\s]+/, '').trim();
-                    if (!sanitized) continue;
-
-                    // Simple IPv4 regex for quick check
-                    const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
-                    // Simple IPv6 regex for quick check
-                    const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/;
-
-                    if (ipv4Regex.test(sanitized) || ipv6Regex.test(sanitized)) {
+                    const ip = this.findIP(line);
+                    if (ip) {
                         try {
-                            const reputation = await this.getIPReputation(sanitized);
-                            this.updateNoteWithReputation(editor, sanitized, reputation);
+                            const reputation = await this.getIPReputation(ip);
+                            this.updateNoteWithReputation(editor, ip, reputation);
                             checkedCount++;
                         } catch (error) {
-                            console.error(`Error checking IP ${sanitized}:`, error);
+                            console.error(`Error checking IP ${ip}:`, error);
                             errorCount++;
                         }
                     }
                 }
-
-                if (checkedCount > 0 || errorCount > 0) {
-                    new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
-                } else {
-                    new Notice('No valid IP addresses found in selection');
-                }
+                new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
             }
         });
 
-        // Add context menu item for selected text
+        // Add command to defang IPs in current note
+        this.addCommand({
+            id: 'defang-ips',
+            name: 'Defang IPs in Current Note',
+            callback: () => this.defangIPsInNote()
+        });
+
+        // Add command to defang IPs in highlighted area
+        this.addCommand({
+            id: 'defang-ips-highlighted',
+            name: 'Defang IPs in Highlighted Area',
+            callback: () => this.defangIPsInHighlighted()
+        });
+
+        // Add right-click menu items
         this.registerEvent(
             this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor, view: MarkdownView) => {
                 const selectedText = editor.getSelection();
                 if (selectedText) {
-                    // Sanitize selection: remove leading '-' and whitespace
-                    const sanitized = selectedText.replace(/^[-\s]+/, '').trim();
-                    // Simple IPv4 regex for quick check
-                    const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/;
-                    // Simple IPv6 regex for quick check
-                    const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/;
-                    
-                    if (ipv4Regex.test(sanitized) || ipv6Regex.test(sanitized)) {
+                    const ip = this.findIP(selectedText);
+                    if (ip) {
                         menu.addItem((item: MenuItem) => {
                             item
                                 .setTitle('Check IP Reputation')
                                 .setIcon('search')
                                 .onClick(async () => {
                                     try {
-                                        const reputation = await this.getIPReputation(sanitized);
-                                        this.updateNoteWithReputation(editor, sanitized, reputation);
-                                        new Notice(`Checked reputation for ${sanitized}`);
+                                        const reputation = await this.getIPReputation(ip);
+                                        this.updateNoteWithReputation(editor, ip, reputation);
+                                        new Notice(`Checked reputation for ${ip}`);
                                     } catch (error) {
-                                        console.error(`Error checking IP ${sanitized}:`, error);
-                                        new Notice(`Error checking IP ${sanitized}`);
+                                        console.error(`Error checking IP ${ip}:`, error);
+                                        new Notice(`Error checking IP ${ip}`);
                                     }
+                                });
+                        });
+
+                        menu.addItem((item: MenuItem) => {
+                            item
+                                .setTitle('Defang IP Address(es)')
+                                .setIcon('shield')
+                                .onClick(() => {
+                                    this.defangIPsInHighlighted();
                                 });
                         });
                     }
@@ -417,7 +422,52 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Main function to check IP reputation in the current note
+     * Refang a defanged IP address
+     * @param ip The defanged IP address
+     * @returns The refanged IP address
+     */
+    private refangIP(ip: string): string {
+        // Replace [.] with . and remove any other defanging characters
+        return ip.replace(/\[\.\]/g, '.').replace(/[\[\]\(\)]/g, '');
+    }
+
+    /**
+     * Check if a string is a valid IP address (including defanged)
+     * @param text The text to check
+     * @returns The matched IP address or null
+     */
+    private findIP(text: string): string | null {
+        console.log('Finding IP in text:', text);
+
+        // First try to match a defanged IP
+        const defangedIPv4Regex = /\b(?:\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3})\b/;
+        const defangedIPv4LastDotRegex = /\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\[\.\]\d{1,3})\b/;
+        
+        // Try to match a defanged IPv4
+        let match = defangedIPv4Regex.exec(text) || defangedIPv4LastDotRegex.exec(text);
+        if (match) {
+            console.log('Found defanged IP:', match[0]);
+            const refanged = this.refangIP(match[0]);
+            console.log('Refanged IP:', refanged);
+            return refanged;
+        }
+
+        // If no defanged IP found, try to match a regular IP
+        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/;
+        
+        match = ipv4Regex.exec(text) || ipv6Regex.exec(text);
+        if (match) {
+            console.log('Found regular IP:', match[0]);
+            return match[0];
+        }
+
+        console.log('No IP found in text');
+        return null;
+    }
+
+    /**
+     * Check IP reputation in the current note
      */
     private async checkIPReputation() {
         const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -428,112 +478,133 @@ export default class IPReputationPlugin extends Plugin {
 
         const editor = activeView.editor;
         const content = editor.getValue();
-        
-        // Debug: Log the content being searched
-        console.log('Searching content for IPs:', content);
-        
-        // Enhanced IPv4 regex that handles defanged IPs
-        const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)[\.\[\]\(\)]?){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g;
-        
-        // Enhanced IPv6 regex that handles defanged IPs
-        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/g;
-        
-        // Find all matches
-        const ipv4Matches = content.match(ipv4Regex) || [];
-        
-        // For IPv6, we need to handle the matches more carefully
-        let ipv6Matches: string[] = [];
-        let match;
-        while ((match = ipv6Regex.exec(content)) !== null) {
-            // Get the full match
-            const fullMatch = match[0];
-            
-            // If the match ends with a colon, look ahead for the next part
-            if (fullMatch.endsWith(':')) {
-                const nextPart = content.slice(match.index + fullMatch.length).match(/^[0-9a-fA-F]{1,4}/);
-                if (nextPart) {
-                    ipv6Matches.push(fullMatch + nextPart[0]);
-                }
-            } else {
-                ipv6Matches.push(fullMatch);
-            }
-        }
-        
-        // Debug: Log matches
-        console.log('IPv4 matches:', ipv4Matches);
-        console.log('IPv6 matches:', ipv6Matches);
-        
-        // Filter out private/reserved IPv4s and defang IPs
-        const publicIPv4s = ipv4Matches.filter(ip => {
-            // Defang the IP first
-            const defanged = this.defangIP(ip);
-            const parts = defanged.split('.');
-            return !(
-                parts[0] === '10' ||
-                (parts[0] === '172' && parseInt(parts[1]) >= 16 && parseInt(parts[1]) <= 31) ||
-                (parts[0] === '192' && parts[1] === '168') ||
-                parts[0] === '127' ||
-                (parts[0] === '169' && parts[1] === '254')
-            );
-        });
+        console.log('Checking content for IPs:', content); // Debug log
 
-        // Filter out private/reserved IPv6s and defang IPs
-        const publicIPv6s = ipv6Matches.filter(ip => {
-            // Defang the IP first
-            const defanged = this.defangIP(ip);
-            const isPrivate = (
-                defanged.startsWith('::1') || // localhost
-                defanged.startsWith('fe80:') || // link-local
-                defanged.startsWith('fc00:') || // unique local
-                defanged.startsWith('fd00:') || // unique local
-                defanged.startsWith('ff00:') || // multicast
-                defanged.startsWith('2001:db8:') // documentation
-            );
-            
-            // Debug: Log IPv6 filtering
-            console.log(`IPv6 ${ip} is ${isPrivate ? 'private' : 'public'}`);
-            return !isPrivate;
-        });
-
-        // Debug: Log filtered results
-        console.log('Public IPv4s:', publicIPv4s);
-        console.log('Public IPv6s:', publicIPv6s);
-
-        const uniqueIPs = [...new Set([...publicIPv4s, ...publicIPv6s])];
-        
-        // Debug: Log final unique IPs
-        console.log('Final unique IPs to check:', uniqueIPs);
-        
-        if (uniqueIPs.length === 0) {
-            new Notice('No public IP addresses found in the current note');
-            return;
-        }
-
+        const lines = content.split('\n');
         let checkedCount = 0;
-        for (const ip of uniqueIPs) {
-            try {
-                // Defang the IP before checking reputation
-                const defanged = this.defangIP(ip);
-                const reputation = await this.getIPReputation(defanged);
-                this.updateNoteWithReputation(editor, ip, reputation);
-                checkedCount++;
-            } catch (error) {
-                console.error(`Error checking IP ${ip}:`, error);
-                new Notice(`Error checking IP ${ip}`);
+        let errorCount = 0;
+
+        for (const line of lines) {
+            console.log('Checking line:', line); // Debug log
+            const ip = this.findIP(line);
+            console.log('Found IP:', ip); // Debug log
+
+            if (ip) {
+                try {
+                    console.log('Getting reputation for IP:', ip); // Debug log
+                    const reputation = await this.getIPReputation(ip);
+                    console.log('Got reputation:', reputation); // Debug log
+                    this.updateNoteWithReputation(editor, ip, reputation);
+                    checkedCount++;
+                } catch (error) {
+                    console.error(`Error checking IP ${ip}:`, error);
+                    errorCount++;
+                }
             }
         }
 
-        new Notice(`Checked ${checkedCount} IP addresses`);
+        if (checkedCount > 0 || errorCount > 0) {
+            new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
+        } else {
+            new Notice('No valid IP addresses found in note');
+        }
     }
 
     /**
-     * Defang an IP address by removing common defanging patterns
-     * @param ip The IP address to defang
-     * @returns The defanged IP address
+     * Defang IPs in the current note
+     */
+    private defangIPsInNote() {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!activeView) {
+            new Notice('No active note found');
+            return;
+        }
+
+        const editor = activeView.editor;
+        const content = editor.getValue();
+        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/g;
+
+        let newContent = content;
+        let defangedCount = 0;
+
+        // Process IPv4 addresses
+        newContent = newContent.replace(ipv4Regex, (match) => {
+            defangedCount++;
+            return this.defangIP(match);
+        });
+
+        // Process IPv6 addresses
+        newContent = newContent.replace(ipv6Regex, (match) => {
+            defangedCount++;
+            return this.defangIP(match);
+        });
+
+        if (defangedCount > 0) {
+            editor.setValue(newContent);
+            new Notice(`Defanged ${defangedCount} IP address(es)`);
+        } else {
+            new Notice('No IP addresses found to defang');
+        }
+    }
+
+    /**
+     * Defang IPs in the highlighted area
+     */
+    private defangIPsInHighlighted() {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!activeView) {
+            new Notice('No active note found');
+            return;
+        }
+
+        const editor = activeView.editor;
+        const selectedText = editor.getSelection();
+        if (!selectedText) {
+            new Notice('No text selected');
+            return;
+        }
+
+        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/g;
+
+        let newText = selectedText;
+        let defangedCount = 0;
+
+        // Process IPv4 addresses
+        newText = newText.replace(ipv4Regex, (match) => {
+            defangedCount++;
+            return this.defangIP(match);
+        });
+
+        // Process IPv6 addresses
+        newText = newText.replace(ipv6Regex, (match) => {
+            defangedCount++;
+            return this.defangIP(match);
+        });
+
+        if (defangedCount > 0) {
+            editor.replaceSelection(newText);
+            new Notice(`Defanged ${defangedCount} IP address(es)`);
+        } else {
+            new Notice('No IP addresses found to defang');
+        }
+    }
+
+    /**
+     * Defang a single IP address according to the user's settings
      */
     private defangIP(ip: string): string {
-        // Remove common defanging patterns
-        return ip.replace(/[\[\]\(\)]/g, '');
+        if (this.settings.defangingMethod === 'all-dots') {
+            return ip.replace(/\./g, '[.]');
+        } else {
+            // Replace only the last dot
+            const lastDotIndex = ip.lastIndexOf('.');
+            if (lastDotIndex !== -1) {
+                return ip.substring(0, lastDotIndex) + '[.]' + ip.substring(lastDotIndex + 1);
+            }
+            return ip;
+        }
     }
 
     /**
@@ -667,9 +738,6 @@ export default class IPReputationPlugin extends Plugin {
                 throw new Error('Empty response from AbuseIPDB API');
             }
 
-            // Debug log the full response
-            console.log('AbuseIPDB API response:', JSON.stringify(data, null, 2));
-
             return data;
         } catch (error) {
             console.error('AbuseIPDB API error:', error);
@@ -720,74 +788,98 @@ export default class IPReputationPlugin extends Plugin {
      * Update the note with reputation data for an IP address
      */
     private updateNoteWithReputation(editor: Editor, ip: string, reputation: IPReputationData) {
+        console.log('Updating note with reputation for IP:', ip);
+        console.log('Reputation data:', reputation);
+
         const content = editor.getValue();
-        const ipRegex = new RegExp(`\\b${ip}\\b`, 'g');
-        let match;
-        let lastIndex = 0;
+        // Create both fully defanged and last-dot-defanged versions of the IP
+        const fullyDefangedIP = ip.replace(/\./g, '[.]');
+        const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
+        console.log('Looking for IPs:', { fullyDefangedIP, lastDotDefangedIP });
+        
+        // Split content into lines and process each line
+        const lines = content.split('\n');
         let newContent = '';
+        let foundIP = false;
 
-        while ((match = ipRegex.exec(content)) !== null) {
-            newContent += content.slice(lastIndex, match.index + match[0].length);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            console.log('Processing line:', line);
             
-            // Check if there's already an annotation
-            const nextLineStart = content.indexOf('\n', match.index);
-            const nextLine = nextLineStart !== -1 ? content.slice(nextLineStart + 1) : '';
-            const hasAnnotation = nextLine.startsWith('  - VirusTotal:') || nextLine.startsWith('  - AbuseIPDB:');
-
-            if (!hasAnnotation) {
-                let annotation = '\n';
+            // Check if this line contains either version of our IP
+            if (line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
+                console.log('Found IP in line:', line);
+                foundIP = true;
                 
-                if (this.settings.outputFormat.virustotal.enabled) {
-                    const vtFormat = this.settings.outputFormat.virustotal.format;
-                    const vtOutput = vtFormat
-                        .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
-                        .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
-                        .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
-                        .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
-                        .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
-                        .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
-                        .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
-                        .replace('{country}', reputation.virustotal.country)
-                        .replace('{asOwner}', reputation.virustotal.asOwner)
-                        .replace('{asn}', reputation.virustotal.asn)
-                        .replace('{network}', reputation.virustotal.network)
-                        .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
-                    annotation += `  - VirusTotal: ${vtOutput}\n`;
-                }
+                // Check if the next line already has an annotation
+                const hasAnnotation = i + 1 < lines.length && 
+                                    (lines[i + 1].trim().startsWith('- VirusTotal:') || 
+                                     lines[i + 1].trim().startsWith('- AbuseIPDB:'));
 
-                if (this.settings.outputFormat.abuseipdb.enabled) {
-                    const abuseFormat = this.settings.outputFormat.abuseipdb.format;
-                    let abuseOutput = abuseFormat
-                        .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
-                        .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
-                        .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
-                        .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
-                        .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
-                        .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
-                        .replace('{countryCode}', reputation.abuseipdb.countryCode)
-                        .replace('{countryName}', reputation.abuseipdb.countryName)
-                        .replace('{usageType}', reputation.abuseipdb.usageType)
-                        .replace('{domain}', reputation.abuseipdb.domain)
-                        .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
-
-                    // Only include lastReported if there are reports
-                    if (reputation.abuseipdb.totalReports > 0) {
-                        abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
-                    } else {
-                        // Remove the entire "last reported X" phrase when there are no reports
-                        abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+                if (!hasAnnotation) {
+                    console.log('No existing annotation, adding new one');
+                    let annotation = '\n';
+                    
+                    if (this.settings.outputFormat.virustotal.enabled) {
+                        const vtFormat = this.settings.outputFormat.virustotal.format;
+                        const vtOutput = vtFormat
+                            .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
+                            .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
+                            .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
+                            .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
+                            .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
+                            .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
+                            .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
+                            .replace('{country}', reputation.virustotal.country)
+                            .replace('{asOwner}', reputation.virustotal.asOwner)
+                            .replace('{asn}', reputation.virustotal.asn)
+                            .replace('{network}', reputation.virustotal.network)
+                            .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
+                        annotation += `  - VirusTotal: ${vtOutput}\n`;
                     }
 
-                    annotation += `  - AbuseIPDB: ${abuseOutput}`;
+                    if (this.settings.outputFormat.abuseipdb.enabled) {
+                        const abuseFormat = this.settings.outputFormat.abuseipdb.format;
+                        let abuseOutput = abuseFormat
+                            .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
+                            .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
+                            .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
+                            .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
+                            .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
+                            .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
+                            .replace('{countryCode}', reputation.abuseipdb.countryCode)
+                            .replace('{countryName}', reputation.abuseipdb.countryName)
+                            .replace('{usageType}', reputation.abuseipdb.usageType)
+                            .replace('{domain}', reputation.abuseipdb.domain)
+                            .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
+
+                        // Only include lastReported if there are reports
+                        if (reputation.abuseipdb.totalReports > 0) {
+                            abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
+                        } else {
+                            // Remove the entire "last reported X" phrase when there are no reports
+                            abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+                        }
+
+                        annotation += `  - AbuseIPDB: ${abuseOutput}`;
+                    }
+
+                    newContent += line + annotation;
+                } else {
+                    console.log('Found existing annotation, skipping');
+                    newContent += line;
                 }
-
-                newContent += annotation;
+            } else {
+                newContent += line;
             }
-
-            lastIndex = match.index + match[0].length;
+            
+            // Add newline if not the last line
+            if (i < lines.length - 1) {
+                newContent += '\n';
+            }
         }
 
-        newContent += content.slice(lastIndex);
+        console.log('New content:', newContent);
         editor.setValue(newContent);
     }
 
@@ -897,8 +989,39 @@ class IPSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.addClass('soc-toolkit-plugin');
 
+        // General Settings section
+        containerEl.createEl('h3', { text: 'General Settings' });
+
+        // Cache Duration setting
+        new Setting(containerEl)
+            .setName('Cache Duration')
+            .setDesc('How long to cache results (in hours)')
+            .addText(text => text
+                .setPlaceholder('24')
+                .setValue(this.plugin.settings.cacheDuration.toString())
+                .onChange(async (value) => {
+                    const num = parseInt(value);
+                    if (!isNaN(num) && num > 0) {
+                        this.plugin.settings.cacheDuration = num;
+                        await this.plugin.saveSettings();
+                    }
+                }));
+
+        // Defanging Method setting
+        new Setting(containerEl)
+            .setName('Defanging Method')
+            .setDesc('Choose how IP addresses should be defanged')
+            .addDropdown(dropdown => dropdown
+                .addOption('all-dots', 'Replace all dots with square brackets')
+                .addOption('last-dot', 'Replace last dot with square bracket')
+                .setValue(this.plugin.settings.defangingMethod)
+                .onChange(async (value) => {
+                    this.plugin.settings.defangingMethod = value as 'all-dots' | 'last-dot';
+                    await this.plugin.saveSettings();
+                }));
+
         // API Settings section
-        containerEl.createEl('h2', { text: 'API Settings' });
+        containerEl.createEl('h3', { text: 'API Settings' });
 
         // VirusTotal API Key setting
         const vtKeySetting = new Setting(containerEl)
@@ -952,32 +1075,17 @@ class IPSettingTab extends PluginSettingTab {
                     new Notice(message);
                 }));
 
-        // Cache Duration setting
-        new Setting(containerEl)
-            .setName('Cache Duration')
-            .setDesc('How long to cache results (in hours)')
-            .addText(text => text
-                .setPlaceholder('24')
-                .setValue(this.plugin.settings.cacheDuration.toString())
-                .onChange(async (value) => {
-                    const num = parseInt(value);
-                    if (!isNaN(num) && num > 0) {
-                        this.plugin.settings.cacheDuration = num;
-                        await this.plugin.saveSettings();
-                    }
-                }));
-
         // Output Settings Section
-        containerEl.createEl('h2', { text: 'Output Settings', cls: 'settings-section-header' });
+        containerEl.createEl('h3', { text: 'Output Settings', cls: 'settings-section-header' });
 
         // Add example output section
-        containerEl.createEl('h3', { text: 'Example Output' });
+        containerEl.createEl('h4', { text: 'Example Output' });
         const exampleContainer = containerEl.createDiv('example-container');
         const exampleContent = exampleContainer.createDiv('example-content');
         this.updateExampleOutput();
 
         // Add VirusTotal section heading
-        containerEl.createEl('h3', { text: 'VirusTotal' });
+        containerEl.createEl('h4', { text: 'VirusTotal' });
 
         // VirusTotal Output Format
         const vtSetting = new Setting(containerEl)
@@ -1029,7 +1137,7 @@ class IPSettingTab extends PluginSettingTab {
         });
 
         // Add AbuseIPDB section heading
-        containerEl.createEl('h3', { text: 'AbuseIPDB' });
+        containerEl.createEl('h4', { text: 'AbuseIPDB' });
 
         // AbuseIPDB Output Format
         const abuseSetting = new Setting(containerEl)
