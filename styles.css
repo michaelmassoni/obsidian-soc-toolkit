@@ -102,12 +102,28 @@
     font-size: 1.4em;
     font-weight: 600;
     color: var(--text-normal);
-    border-bottom: 1px solid var(--background-modifier-border);
     padding-bottom: 8px;
 }
 
+.soc-toolkit-plugin h2.settings-section-header {
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
 .soc-toolkit-plugin h3 {
+    margin: 32px 0 16px 0;
+    font-size: 1.2em;
+    font-weight: 600;
+    color: var(--text-normal);
+    padding-bottom: 8px;
+}
+
+.soc-toolkit-plugin h3.settings-section-header {
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.soc-toolkit-plugin h4 {
     margin: 24px 0 12px 0;
-    font-size: 1.1em;
+    font-size: 1em;
+    font-weight: 500;
     color: var(--text-muted);
 } 
