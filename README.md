@@ -1,17 +1,24 @@
 # SOC Toolkit for Obsidian
 
-An Obsidian plugin that provides a collection of tools for SOC analysts and cybersecurity professionals. Currently includes IP reputation analysis using VirusTotal and AbuseIPDB APIs, with more features planned.
+An Obsidian plugin that provides a collection of tools for SOC analysts and cybersecurity professionals. Currently includes IP reputation analysis using VirusTotal and AbuseIPDB APIs, and IP defanging. 
 
 ## Features
 
 - **IP Reputation Analysis**
   - Scans notes for both IPv4 and IPv6 addresses
+  - Supports defanged IP addresses (e.g., `8[.]8[.]8[.]8` or `8.8.8[.]8`)
   - Checks IP reputation using VirusTotal and AbuseIPDB APIs
   - Caches results to minimise API calls
   - Customisable output format for both APIs
   - Example output preview
   - Right-click context menu for quick IP checks
   - Command palette support for checking highlighted IPs
+
+- **IP Defanging**
+  - Defang IPs in current note with a single command
+  - Right-click menu option for defanging IPs
+  - Supports both full defanging and last-dot defanging
+  - Maintains original note formatting
 
 ## Installation
 
@@ -38,13 +45,22 @@ Before using the plugin, you need to configure your API keys:
 
 ### IP Reputation Analysis
 
-1. Open a note containing IP addresses
+1. Open a note containing IP addresses (regular or defanged)
 2. Use one of the following methods to check IP reputation:
    - Press your defined hotkey for "Check IP Reputation in Current Note"
-   - Highlight IPs you wish to check, and then press your defined hotkey for "Check IP Reputation in Highlighted Area""
+   - Highlight IPs you wish to check, and then press your defined hotkey for "Check IP Reputation in Highlighted Area"
    - Highlight IPs you wish to check, and then open right-click menu and select "Check IP Reputation" 
    - Open the command palette (Ctrl/Cmd + P) and search for "Check IP Reputation in Current Note"
 3. The plugin will add reputation data below each IP address. You can configure the output in the plugin settings.
+
+### IP Defanging
+
+1. Open a note containing IP addresses
+2. Use one of the following methods to defang IPs:
+   - Press your defined hotkey for "Defang IPs in Current Note"
+   - Right-click on an IP and select "Defang IP"
+   - Open the command palette (Ctrl/Cmd + P) and search for "Defang IPs in Current Note"
+3. The plugin will defang all IPs in the note while maintaining the original formatting
 
 ## Example
 
@@ -75,7 +91,8 @@ This plugin:
 
 ## Roadmap
 
-- [ ] IP/URL defanging
+- [x] IP defanging
+- [ ] URL defanging
 - [ ] Domain/URL reputation analysis
 - [ ] File hash analysis
 - [ ] More to come...
