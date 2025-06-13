@@ -74,10 +74,10 @@ IPs involved in incident:
 After running the plugin:
 ```
 IPs involved in incident:
-- 8.8.8.8
+- 8[.]8[.]8[.]8
   - VirusTotal: 0/94 vendors flagged as malicious
   - AbuseIPDB: 0% confidence of abuse, last reported today
-- 2001:4860:4860::8888
+- 2001[:]4860[:]4860[::]8888
   - VirusTotal: 0/94 vendors flagged as malicious
   - AbuseIPDB: 0% confidence of abuse, last reported 66d ago
 ```
