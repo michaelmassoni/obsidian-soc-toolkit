@@ -432,11 +432,11 @@ export default class IPReputationPlugin extends Plugin {
         // Debug: Log the content being searched
         console.log('Searching content for IPs:', content);
         
-        // Simple IPv4 regex
-        const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g;
+        // Enhanced IPv4 regex that handles defanged IPs
+        const ipv4Regex = /\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)[\.\[\]\(\)]?){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b/g;
         
-        // Simpler IPv6 regex that matches the basic structure
-        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/g;
+        // Enhanced IPv6 regex that handles defanged IPs
+        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,7}:\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}[\.\[\]\(\)]?){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b/g;
         
         // Find all matches
         const ipv4Matches = content.match(ipv4Regex) || [];
@@ -463,9 +463,11 @@ export default class IPReputationPlugin extends Plugin {
         console.log('IPv4 matches:', ipv4Matches);
         console.log('IPv6 matches:', ipv6Matches);
         
-        // Filter out private/reserved IPv4s
+        // Filter out private/reserved IPv4s and defang IPs
         const publicIPv4s = ipv4Matches.filter(ip => {
-            const parts = ip.split('.');
+            // Defang the IP first
+            const defanged = this.defangIP(ip);
+            const parts = defanged.split('.');
             return !(
                 parts[0] === '10' ||
                 (parts[0] === '172' && parseInt(parts[1]) >= 16 && parseInt(parts[1]) <= 31) ||
@@ -475,15 +477,17 @@ export default class IPReputationPlugin extends Plugin {
             );
         });
 
-        // Filter out private/reserved IPv6s
+        // Filter out private/reserved IPv6s and defang IPs
         const publicIPv6s = ipv6Matches.filter(ip => {
+            // Defang the IP first
+            const defanged = this.defangIP(ip);
             const isPrivate = (
-                ip.startsWith('::1') || // localhost
-                ip.startsWith('fe80:') || // link-local
-                ip.startsWith('fc00:') || // unique local
-                ip.startsWith('fd00:') || // unique local
-                ip.startsWith('ff00:') || // multicast
-                ip.startsWith('2001:db8:') // documentation
+                defanged.startsWith('::1') || // localhost
+                defanged.startsWith('fe80:') || // link-local
+                defanged.startsWith('fc00:') || // unique local
+                defanged.startsWith('fd00:') || // unique local
+                defanged.startsWith('ff00:') || // multicast
+                defanged.startsWith('2001:db8:') // documentation
             );
             
             // Debug: Log IPv6 filtering
@@ -508,7 +512,9 @@ export default class IPReputationPlugin extends Plugin {
         let checkedCount = 0;
         for (const ip of uniqueIPs) {
             try {
-                const reputation = await this.getIPReputation(ip);
+                // Defang the IP before checking reputation
+                const defanged = this.defangIP(ip);
+                const reputation = await this.getIPReputation(defanged);
                 this.updateNoteWithReputation(editor, ip, reputation);
                 checkedCount++;
             } catch (error) {
@@ -518,6 +524,16 @@ export default class IPReputationPlugin extends Plugin {
         }
 
         new Notice(`Checked ${checkedCount} IP addresses`);
+    }
+
+    /**
+     * Defang an IP address by removing common defanging patterns
+     * @param ip The IP address to defang
+     * @returns The defanged IP address
+     */
+    private defangIP(ip: string): string {
+        // Remove common defanging patterns
+        return ip.replace(/[\[\]\(\)]/g, '');
     }
 
     /**
