@@ -1,6 +1,6 @@
 {
     "name": "obsidian-soc-toolkit",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "description": "A collection of tools for SOC analysts.",
     "main": "main.js",
     "scripts": {
