@@ -427,8 +427,14 @@ export default class IPReputationPlugin extends Plugin {
      * @returns The refanged IP address
      */
     private refangIP(ip: string): string {
-        // Replace [.] with . and remove any other defanging characters
-        return ip.replace(/\[\.\]/g, '.').replace(/[\[\]\(\)]/g, '');
+        // Handle IPv6 addresses
+        if (ip.includes('[:]')) {
+            // Replace [:] with :
+            return ip.replace(/\[:\]/g, ':');
+        }
+        
+        // Handle IPv4 addresses
+        return ip.replace(/\[\.\]/g, '.');
     }
 
     /**
@@ -442,9 +448,12 @@ export default class IPReputationPlugin extends Plugin {
         // First try to match a defanged IP
         const defangedIPv4Regex = /\b(?:\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3})\b/;
         const defangedIPv4LastDotRegex = /\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\[\.\]\d{1,3})\b/;
+        const defangedIPv6Regex = /\b(?:[0-9a-fA-F]{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4})\b/;
         
-        // Try to match a defanged IPv4
-        let match = defangedIPv4Regex.exec(text) || defangedIPv4LastDotRegex.exec(text);
+        // Try to match a defanged IP
+        let match = defangedIPv4Regex.exec(text) || 
+                   defangedIPv4LastDotRegex.exec(text) || 
+                   defangedIPv6Regex.exec(text);
         if (match) {
             console.log('Found defanged IP:', match[0]);
             const refanged = this.refangIP(match[0]);
@@ -595,16 +604,14 @@ export default class IPReputationPlugin extends Plugin {
      * Defang a single IP address according to the user's settings
      */
     private defangIP(ip: string): string {
-        if (this.settings.defangingMethod === 'all-dots') {
-            return ip.replace(/\./g, '[.]');
-        } else {
-            // Replace only the last dot
-            const lastDotIndex = ip.lastIndexOf('.');
-            if (lastDotIndex !== -1) {
-                return ip.substring(0, lastDotIndex) + '[.]' + ip.substring(lastDotIndex + 1);
-            }
-            return ip;
+        // Handle IPv6 addresses
+        if (ip.includes(':')) {
+            // Replace colons with [:]
+            return ip.replace(/:/g, '[:]');
         }
+        
+        // Handle IPv4 addresses
+        return ip.replace(/\./g, '[.]');
     }
 
     /**
