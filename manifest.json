@@ -6,8 +6,5 @@
     "description": "A collection of tools for SOC analysts.",
     "author": "Michael Massoni",
     "authorUrl": "https://github.com/michaelmassoni",
-    "isDesktopOnly": false,
-    "styles": [
-        "styles.css"
-    ]
+    "isDesktopOnly": false
 } 

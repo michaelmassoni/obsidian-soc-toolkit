@@ -317,14 +317,14 @@ export default class IPReputationPlugin extends Plugin {
         // Register the command to check IP reputation
         this.addCommand({
             id: 'check-ip-reputation',
-            name: 'Check IP Reputation in Current Note',
+            name: 'Check IP reputation in current note',
             callback: () => this.checkIPReputation()
         });
 
         // Add command to check IP reputation in highlighted area
         this.addCommand({
             id: 'check-ip-reputation-highlighted',
-            name: 'Check IP Reputation in Highlighted Area',
+            name: 'Check IP reputation in highlighted area',
             callback: async () => {
                 const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
                 if (!activeView) {
@@ -362,14 +362,14 @@ export default class IPReputationPlugin extends Plugin {
         // Add command to defang IPs in current note
         this.addCommand({
             id: 'defang-ips',
-            name: 'Defang IPs in Current Note',
+            name: 'Defang IPs in current note',
             callback: () => this.defangIPsInNote()
         });
 
         // Add command to defang IPs in highlighted area
         this.addCommand({
             id: 'defang-ips-highlighted',
-            name: 'Defang IPs in Highlighted Area',
+            name: 'Defang IPs in highlighted area',
             callback: () => this.defangIPsInHighlighted()
         });
 
@@ -382,7 +382,7 @@ export default class IPReputationPlugin extends Plugin {
                     if (ip) {
                         menu.addItem((item: MenuItem) => {
                             item
-                                .setTitle('Check IP Reputation')
+                                .setTitle('Check IP reputation')
                                 .setIcon('search')
                                 .onClick(async () => {
                                     try {
@@ -398,7 +398,7 @@ export default class IPReputationPlugin extends Plugin {
 
                         menu.addItem((item: MenuItem) => {
                             item
-                                .setTitle('Defang IP Address(es)')
+                                .setTitle('Defang IP address(es)')
                                 .setIcon('shield')
                                 .onClick(() => {
                                     this.defangIPsInHighlighted();
@@ -443,8 +443,6 @@ export default class IPReputationPlugin extends Plugin {
      * @returns The matched IP address or null
      */
     private findIP(text: string): string | null {
-        console.log('Finding IP in text:', text);
-
         // First try to match a defanged IP
         const defangedIPv4Regex = /\b(?:\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3})\b/;
         const defangedIPv4LastDotRegex = /\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\[\.\]\d{1,3})\b/;
@@ -455,9 +453,7 @@ export default class IPReputationPlugin extends Plugin {
                    defangedIPv4LastDotRegex.exec(text) || 
                    defangedIPv6Regex.exec(text);
         if (match) {
-            console.log('Found defanged IP:', match[0]);
             const refanged = this.refangIP(match[0]);
-            console.log('Refanged IP:', refanged);
             return refanged;
         }
 
@@ -467,11 +463,9 @@ export default class IPReputationPlugin extends Plugin {
         
         match = ipv4Regex.exec(text) || ipv6Regex.exec(text);
         if (match) {
-            console.log('Found regular IP:', match[0]);
             return match[0];
         }
 
-        console.log('No IP found in text');
         return null;
     }
 
@@ -487,22 +481,17 @@ export default class IPReputationPlugin extends Plugin {
 
         const editor = activeView.editor;
         const content = editor.getValue();
-        console.log('Checking content for IPs:', content); // Debug log
 
         const lines = content.split('\n');
         let checkedCount = 0;
         let errorCount = 0;
 
         for (const line of lines) {
-            console.log('Checking line:', line); // Debug log
             const ip = this.findIP(line);
-            console.log('Found IP:', ip); // Debug log
 
             if (ip) {
                 try {
-                    console.log('Getting reputation for IP:', ip); // Debug log
                     const reputation = await this.getIPReputation(ip);
-                    console.log('Got reputation:', reputation); // Debug log
                     this.updateNoteWithReputation(editor, ip, reputation);
                     checkedCount++;
                 } catch (error) {
@@ -606,10 +595,9 @@ export default class IPReputationPlugin extends Plugin {
     private defangIP(ip: string): string {
         // Handle IPv6 addresses
         if (ip.includes(':')) {
-            // Replace colons with [:]
-            return ip.replace(/:/g, '[:]');
+            // Replace only single ':' with '[:]', leave '::' untouched (this is due to how Obsidian handles "[::]" in markdown)
+            return ip.replace(/(?<!:):(?!:)/g, '[:]');
         }
-        
         // Handle IPv4 addresses
         return ip.replace(/\./g, '[.]');
     }
@@ -795,14 +783,12 @@ export default class IPReputationPlugin extends Plugin {
      * Update the note with reputation data for an IP address
      */
     private updateNoteWithReputation(editor: Editor, ip: string, reputation: IPReputationData) {
-        console.log('Updating note with reputation for IP:', ip);
         console.log('Reputation data:', reputation);
 
         const content = editor.getValue();
         // Create both fully defanged and last-dot-defanged versions of the IP
         const fullyDefangedIP = ip.replace(/\./g, '[.]');
         const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
-        console.log('Looking for IPs:', { fullyDefangedIP, lastDotDefangedIP });
         
         // Split content into lines and process each line
         const lines = content.split('\n');
@@ -811,11 +797,9 @@ export default class IPReputationPlugin extends Plugin {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            console.log('Processing line:', line);
             
             // Check if this line contains either version of our IP
             if (line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
-                console.log('Found IP in line:', line);
                 foundIP = true;
                 
                 // Check if the next line already has an annotation
@@ -824,7 +808,6 @@ export default class IPReputationPlugin extends Plugin {
                                      lines[i + 1].trim().startsWith('- AbuseIPDB:'));
 
                 if (!hasAnnotation) {
-                    console.log('No existing annotation, adding new one');
                     let annotation = '\n';
                     
                     if (this.settings.outputFormat.virustotal.enabled) {
@@ -873,7 +856,6 @@ export default class IPReputationPlugin extends Plugin {
 
                     newContent += line + annotation;
                 } else {
-                    console.log('Found existing annotation, skipping');
                     newContent += line;
                 }
             } else {
@@ -886,7 +868,6 @@ export default class IPReputationPlugin extends Plugin {
             }
         }
 
-        console.log('New content:', newContent);
         editor.setValue(newContent);
     }
 
@@ -916,7 +897,6 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
-                console.log('VirusTotal full response:', JSON.stringify(data, null, 2));
                 
                 if (!data) {
                     results.errors.virustotal = 'Empty response from VirusTotal API';
@@ -956,7 +936,6 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
-                console.log('AbuseIPDB full response:', JSON.stringify(data, null, 2));
                 
                 if (data.data && typeof data.data.abuseConfidenceScore === 'number') {
                     results.abuseipdb = true;
@@ -996,12 +975,9 @@ class IPSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.addClass('soc-toolkit-plugin');
 
-        // General Settings section
-        containerEl.createEl('h3', { text: 'General Settings' });
-
         // Cache Duration setting
         new Setting(containerEl)
-            .setName('Cache Duration')
+            .setName('Cache duration')
             .setDesc('How long to cache results (in hours)')
             .addText(text => text
                 .setPlaceholder('24')
@@ -1016,7 +992,7 @@ class IPSettingTab extends PluginSettingTab {
 
         // Defanging Method setting
         new Setting(containerEl)
-            .setName('Defanging Method')
+            .setName('Defanging method')
             .setDesc('Choose how IP addresses should be defanged')
             .addDropdown(dropdown => dropdown
                 .addOption('all-dots', 'Replace all dots with square brackets')
@@ -1027,12 +1003,14 @@ class IPSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
-        // API Settings section
-        containerEl.createEl('h3', { text: 'API Settings' });
+        // Section heading: API keys
+        new Setting(containerEl)
+            .setName('API')
+            .setHeading();
 
         // VirusTotal API Key setting
         const vtKeySetting = new Setting(containerEl)
-            .setName('VirusTotal API Key')
+            .setName('VirusTotal API key')
             .setDesc('Enter your VirusTotal API key');
         vtKeySetting.controlEl.addClass('api-key-input');
         vtKeySetting.addText(text => text
@@ -1046,7 +1024,7 @@ class IPSettingTab extends PluginSettingTab {
 
         // AbuseIPDB API Key setting
         const abuseKeySetting = new Setting(containerEl)
-            .setName('AbuseIPDB API Key')
+            .setName('AbuseIPDB API key')
             .setDesc('Enter your AbuseIPDB API key');
         abuseKeySetting.controlEl.addClass('api-key-input');
         abuseKeySetting.addText(text => text
@@ -1060,10 +1038,10 @@ class IPSettingTab extends PluginSettingTab {
 
         // Test API Keys button
         new Setting(containerEl)
-            .setName('Test API Keys')
+            .setName('Test API keys')
             .setDesc('Verify that your API keys are working correctly')
             .addButton(button => button
-                .setButtonText('Test Keys')
+                .setButtonText('Test keys')
                 .onClick(async () => {
                     const results = await this.plugin.testApiKeys();
                     
@@ -1082,17 +1060,14 @@ class IPSettingTab extends PluginSettingTab {
                     new Notice(message);
                 }));
 
-        // Output Settings Section
-        containerEl.createEl('h3', { text: 'Output Settings', cls: 'settings-section-header' });
+        // Section heading: Output
+        new Setting(containerEl)
+            .setName('Output')
+            .setHeading();
 
-        // Add example output section
-        containerEl.createEl('h4', { text: 'Example Output' });
         const exampleContainer = containerEl.createDiv('example-container');
         const exampleContent = exampleContainer.createDiv('example-content');
         this.updateExampleOutput();
-
-        // Add VirusTotal section heading
-        containerEl.createEl('h4', { text: 'VirusTotal' });
 
         // VirusTotal Output Format
         const vtSetting = new Setting(containerEl)
@@ -1108,8 +1083,8 @@ class IPSettingTab extends PluginSettingTab {
 
         // Add VirusTotal format input as a new setting
         const vtFormatSetting = new Setting(containerEl)
-            .setName('Customise Output')
-            .setDesc('Customise the output using the available fields below');
+            .setName('Customise output')
+            .setDesc('Customise the VirusTotal output using the available fields below');
         vtFormatSetting.controlEl.addClass('format-input-container');
         vtFormatSetting.addText(text => text
             .setValue(this.plugin.settings.outputFormat.virustotal.format)
@@ -1143,9 +1118,6 @@ class IPSettingTab extends PluginSettingTab {
             });
         });
 
-        // Add AbuseIPDB section heading
-        containerEl.createEl('h4', { text: 'AbuseIPDB' });
-
         // AbuseIPDB Output Format
         const abuseSetting = new Setting(containerEl)
             .setName('Enable AbuseIPDB');
@@ -1160,8 +1132,8 @@ class IPSettingTab extends PluginSettingTab {
 
         // Add AbuseIPDB format input as a new setting
         const abuseFormatSetting = new Setting(containerEl)
-            .setName('Customise Output')
-            .setDesc('Customise the output using the available fields below');
+            .setName('Customise output')
+            .setDesc('Customise the AbuseIPDB output using the available fields below');
         abuseFormatSetting.controlEl.addClass('format-input-container');
         abuseFormatSetting.addText(text => text
             .setValue(this.plugin.settings.outputFormat.abuseipdb.format)
