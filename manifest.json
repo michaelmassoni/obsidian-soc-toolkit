@@ -1,10 +1,10 @@
 {
-    "id": "soc-toolkit",
-    "name": "SOC Toolkit",
-    "version": "1.5.0",
-    "minAppVersion": "0.15.0",
-    "description": "A collection of tools for SOC analysts.",
-    "author": "Michael Massoni",
-    "authorUrl": "https://github.com/michaelmassoni",
-    "isDesktopOnly": false
-} 
+	"id": "soc-toolkit",
+	"name": "SOC Toolkit",
+	"version": "1.6.0",
+	"minAppVersion": "0.15.0",
+	"description": "A collection of tools for SOC analysts.",
+	"author": "Michael Massoni",
+	"authorUrl": "https://github.com/michaelmassoni",
+	"isDesktopOnly": false
+}
