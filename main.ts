@@ -338,80 +338,7 @@ export default class IPReputationPlugin extends Plugin {
                     return;
                 }
 
-                // Split selection into lines and process each line
-                const lines = selectedText.split('\n');
-                let checkedCount = 0;
-                let errorCount = 0;
-                const annotatedLines: string[] = [];
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
-                    const ip = this.findIP(line);
-                    if (ip) {
-                        try {
-                            const reputation = await this.getIPReputation(ip);
-                            // Annotate this line (copy logic from updateNoteWithReputation, but only for this line)
-                            const fullyDefangedIP = ip.replace(/\./g, '[.]');
-                            const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
-                            const plainIP = ip;
-                            let annotatedLine = line;
-                            // Check if this line contains any version of our IP
-                            if (line.includes(plainIP) || line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
-                                // Always add annotation for each detected IP in selection
-                                let annotation = '\n';
-                                if (this.settings.outputFormat.virustotal.enabled) {
-                                    const vtFormat = this.settings.outputFormat.virustotal.format;
-                                    const vtOutput = vtFormat
-                                        .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
-                                        .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
-                                        .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
-                                        .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
-                                        .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
-                                        .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
-                                        .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
-                                        .replace('{country}', reputation.virustotal.country)
-                                        .replace('{asOwner}', reputation.virustotal.asOwner)
-                                        .replace('{asn}', reputation.virustotal.asn)
-                                        .replace('{network}', reputation.virustotal.network)
-                                        .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
-                                    annotation += `  - VirusTotal: ${vtOutput}\n`;
-                                }
-                                if (this.settings.outputFormat.abuseipdb.enabled) {
-                                    const abuseFormat = this.settings.outputFormat.abuseipdb.format;
-                                    let abuseOutput = abuseFormat
-                                        .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
-                                        .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
-                                        .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
-                                        .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
-                                        .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
-                                        .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
-                                        .replace('{countryCode}', reputation.abuseipdb.countryCode)
-                                        .replace('{countryName}', reputation.abuseipdb.countryName)
-                                        .replace('{usageType}', reputation.abuseipdb.usageType)
-                                        .replace('{domain}', reputation.abuseipdb.domain)
-                                        .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
-                                    if (reputation.abuseipdb.totalReports > 0) {
-                                        abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
-                                    } else {
-                                        abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
-                                    }
-                                    annotation += `  - AbuseIPDB: ${abuseOutput}`;
-                                }
-                                annotatedLine += annotation;
-                            }
-                            annotatedLines.push(annotatedLine);
-                            checkedCount++;
-                        } catch (error) {
-                            console.error(`Error checking IP ${ip}:`, error);
-                            annotatedLines.push(line);
-                            errorCount++;
-                        }
-                    } else {
-                        annotatedLines.push(line);
-                    }
-                }
-                // Replace the selection with the annotated lines
-                editor.replaceSelection(annotatedLines.join('\n'));
-                new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
+                await this.processReputationForSelection(editor, selectedText);
             }
         });
 
@@ -441,14 +368,7 @@ export default class IPReputationPlugin extends Plugin {
                                 .setTitle('Check IP reputation')
                                 .setIcon('search')
                                 .onClick(async () => {
-                                    try {
-                                        const reputation = await this.getIPReputation(ip);
-                                        this.updateNoteWithReputation(editor, ip, reputation);
-                                        new Notice(`Checked reputation for ${ip}`);
-                                    } catch (error) {
-                                        console.error(`Error checking IP ${ip}:`, error);
-                                        new Notice(`Error checking IP ${ip}`);
-                                    }
+                                    await this.processReputationForSelection(editor, selectedText);
                                 });
                         });
 
@@ -488,7 +408,7 @@ export default class IPReputationPlugin extends Plugin {
             // Replace [:] with :
             return ip.replace(/\[:\]/g, ':');
         }
-        
+
         // Handle IPv4 addresses
         return ip.replace(/\[\.\]/g, '.');
     }
@@ -503,11 +423,11 @@ export default class IPReputationPlugin extends Plugin {
         const defangedIPv4Regex = /\b(?:\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3})\b/;
         const defangedIPv4LastDotRegex = /\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\[\.\]\d{1,3})\b/;
         const defangedIPv6Regex = /\b(?:[0-9a-fA-F]{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4})\b/;
-        
+
         // Try to match a defanged IP
-        let match = defangedIPv4Regex.exec(text) || 
-                   defangedIPv4LastDotRegex.exec(text) || 
-                   defangedIPv6Regex.exec(text);
+        let match = defangedIPv4Regex.exec(text) ||
+            defangedIPv4LastDotRegex.exec(text) ||
+            defangedIPv6Regex.exec(text);
         if (match) {
             const refanged = this.refangIP(match[0]);
             return refanged;
@@ -516,13 +436,128 @@ export default class IPReputationPlugin extends Plugin {
         // If no defanged IP found, try to match a regular IP
         const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
         const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/;
-        
+
         match = ipv4Regex.exec(text) || ipv6Regex.exec(text);
         if (match) {
             return match[0];
         }
 
         return null;
+    }
+
+    /**
+     * Get the indentation prefix for the annotation based on the line content
+     */
+    private getIndentPrefix(line: string): string {
+        const leadingWhitespace = line.match(/^\s*/)?.[0] || '';
+        const isBulleted = /^\s*[-*+] /.test(line);
+
+        if (isBulleted) {
+            return leadingWhitespace + '\t';
+        }
+        return leadingWhitespace;
+    }
+
+    /**
+     * Generate the annotation text for the reputation data
+     */
+    private generateAnnotation(reputation: IPReputationData, indentPrefix: string): string {
+        let annotation = '\n';
+
+        if (this.settings.outputFormat.virustotal.enabled) {
+            const vtFormat = this.settings.outputFormat.virustotal.format;
+            const vtOutput = vtFormat
+                .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
+                .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
+                .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
+                .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
+                .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
+                .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
+                .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
+                .replace('{country}', reputation.virustotal.country)
+                .replace('{asOwner}', reputation.virustotal.asOwner)
+                .replace('{asn}', reputation.virustotal.asn)
+                .replace('{network}', reputation.virustotal.network)
+                .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
+            annotation += `${indentPrefix}- VirusTotal: ${vtOutput}\n`;
+        }
+
+        if (this.settings.outputFormat.abuseipdb.enabled) {
+            const abuseFormat = this.settings.outputFormat.abuseipdb.format;
+            let abuseOutput = abuseFormat
+                .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
+                .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
+                .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
+                .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
+                .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
+                .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
+                .replace('{countryCode}', reputation.abuseipdb.countryCode)
+                .replace('{countryName}', reputation.abuseipdb.countryName)
+                .replace('{usageType}', reputation.abuseipdb.usageType)
+                .replace('{domain}', reputation.abuseipdb.domain)
+                .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
+
+            if (reputation.abuseipdb.totalReports > 0) {
+                abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
+            } else {
+                abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+            }
+            annotation += `${indentPrefix}- AbuseIPDB: ${abuseOutput}`;
+        }
+
+        // If the annotation ends with a newline (e.g. only VT enabled), remove it to avoid double newlines when appending
+        if (annotation.endsWith('\n')) {
+            annotation = annotation.slice(0, -1);
+        }
+
+        return annotation;
+    }
+
+    /**
+     * Process reputation check for selected text (handles multiple IPs)
+     */
+    private async processReputationForSelection(editor: Editor, selectedText: string) {
+        // Split selection into lines and process each line
+        const lines = selectedText.split('\n');
+        let checkedCount = 0;
+        let errorCount = 0;
+        const annotatedLines: string[] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const ip = this.findIP(line);
+
+            if (ip) {
+                try {
+                    const reputation = await this.getIPReputation(ip);
+
+                    // Annotate this line
+                    const fullyDefangedIP = ip.replace(/\./g, '[.]');
+                    const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
+                    const plainIP = ip;
+                    let annotatedLine = line;
+
+                    // Check if this line contains any version of our IP
+                    if (line.includes(plainIP) || line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
+                        const indentPrefix = this.getIndentPrefix(line);
+                        const annotation = this.generateAnnotation(reputation, indentPrefix);
+                        annotatedLine += annotation;
+                    }
+                    annotatedLines.push(annotatedLine);
+                    checkedCount++;
+                } catch (error) {
+                    console.error(`Error checking IP ${ip}:`, error);
+                    annotatedLines.push(line);
+                    errorCount++;
+                }
+            } else {
+                annotatedLines.push(line);
+            }
+        }
+
+        // Replace the selection with the annotated lines
+        editor.replaceSelection(annotatedLines.join('\n'));
+        new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
     }
 
     /**
@@ -806,31 +841,31 @@ export default class IPReputationPlugin extends Plugin {
         const date = new Date(dateString);
         const now = new Date();
         const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-        
+
         if (diffInSeconds < 60) {
             return 'just now';
         }
-        
+
         const diffInMinutes = Math.floor(diffInSeconds / 60);
         if (diffInMinutes < 60) {
             return `${diffInMinutes}m ago`;
         }
-        
+
         const diffInHours = Math.floor(diffInMinutes / 60);
         if (diffInHours < 24) {
             return `${diffInHours}h ago`;
         }
-        
+
         const diffInDays = Math.floor(diffInHours / 24);
         if (diffInDays < 30) {
             return `${diffInDays}d ago`;
         }
-        
+
         const diffInMonths = Math.floor(diffInDays / 30);
         if (diffInMonths < 12) {
             return `${diffInMonths}mo ago`;
         }
-        
+
         const diffInYears = Math.floor(diffInMonths / 12);
         return `${diffInYears}y ago`;
     }
@@ -846,7 +881,7 @@ export default class IPReputationPlugin extends Plugin {
         const fullyDefangedIP = ip.replace(/\./g, '[.]');
         const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
         const plainIP = ip;
-        
+
         // Split content into lines and process each line
         const lines = content.split('\n');
         let newContent = '';
@@ -854,63 +889,19 @@ export default class IPReputationPlugin extends Plugin {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
-            
+
             // Check if this line contains any version of our IP
             if (line.includes(plainIP) || line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
                 foundIP = true;
-                
+
                 // Check if the next line already has an annotation
-                const hasAnnotation = i + 1 < lines.length && 
-                                    (lines[i + 1].trim().startsWith('- VirusTotal:') || 
-                                     lines[i + 1].trim().startsWith('- AbuseIPDB:'));
+                const hasAnnotation = i + 1 < lines.length &&
+                    (lines[i + 1].trim().startsWith('- VirusTotal:') ||
+                        lines[i + 1].trim().startsWith('- AbuseIPDB:'));
 
                 if (!hasAnnotation) {
-                    let annotation = '\n';
-                    
-                    if (this.settings.outputFormat.virustotal.enabled) {
-                        const vtFormat = this.settings.outputFormat.virustotal.format;
-                        const vtOutput = vtFormat
-                            .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
-                            .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
-                            .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
-                            .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
-                            .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
-                            .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
-                            .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
-                            .replace('{country}', reputation.virustotal.country)
-                            .replace('{asOwner}', reputation.virustotal.asOwner)
-                            .replace('{asn}', reputation.virustotal.asn)
-                            .replace('{network}', reputation.virustotal.network)
-                            .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
-                        annotation += `  - VirusTotal: ${vtOutput}\n`;
-                    }
-
-                    if (this.settings.outputFormat.abuseipdb.enabled) {
-                        const abuseFormat = this.settings.outputFormat.abuseipdb.format;
-                        let abuseOutput = abuseFormat
-                            .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
-                            .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
-                            .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
-                            .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
-                            .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
-                            .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
-                            .replace('{countryCode}', reputation.abuseipdb.countryCode)
-                            .replace('{countryName}', reputation.abuseipdb.countryName)
-                            .replace('{usageType}', reputation.abuseipdb.usageType)
-                            .replace('{domain}', reputation.abuseipdb.domain)
-                            .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
-
-                        // Only include lastReported if there are reports
-                        if (reputation.abuseipdb.totalReports > 0) {
-                            abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
-                        } else {
-                            // Remove the entire "last reported X" phrase when there are no reports
-                            abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
-                        }
-
-                        annotation += `  - AbuseIPDB: ${abuseOutput}`;
-                    }
-
+                    const indentPrefix = this.getIndentPrefix(line);
+                    const annotation = this.generateAnnotation(reputation, indentPrefix);
                     newContent += line + annotation;
                 } else {
                     newContent += line;
@@ -918,7 +909,7 @@ export default class IPReputationPlugin extends Plugin {
             } else {
                 newContent += line;
             }
-            
+
             // Add newline if not the last line
             if (i < lines.length - 1) {
                 newContent += '\n';
@@ -954,7 +945,7 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
-                
+
                 if (!data) {
                     results.errors.virustotal = 'Empty response from VirusTotal API';
                 } else if (!data.data) {
@@ -993,7 +984,7 @@ export default class IPReputationPlugin extends Plugin {
                 });
 
                 const data = JSON.parse(response);
-                
+
                 if (data.data && typeof data.data.abuseConfidenceScore === 'number') {
                     results.abuseipdb = true;
                 } else {
@@ -1028,7 +1019,7 @@ class IPSettingTab extends PluginSettingTab {
     }
 
     display(): void {
-        const {containerEl} = this;
+        const { containerEl } = this;
         containerEl.empty();
         containerEl.addClass('soc-toolkit-plugin');
 
@@ -1101,19 +1092,19 @@ class IPSettingTab extends PluginSettingTab {
                 .setButtonText('Test keys')
                 .onClick(async () => {
                     const results = await this.plugin.testApiKeys();
-                    
+
                     let message = '';
-                    
+
                     // VirusTotal status
-                    message += results.virustotal 
+                    message += results.virustotal
                         ? '✅ VirusTotal API key is working\n'
                         : `❌ VirusTotal API key is not working\n${results.errors.virustotal}\n\n`;
-                    
+
                     // AbuseIPDB status
                     message += results.abuseipdb
                         ? '✅ AbuseIPDB API key is working'
                         : `❌ AbuseIPDB API key is not working\n${results.errors.abuseipdb}`;
-                    
+
                     new Notice(message);
                 }));
 
@@ -1260,7 +1251,7 @@ class IPSettingTab extends PluginSettingTab {
         };
 
         let output = '8.8.8.8\n';
-        
+
         if (this.plugin.settings.outputFormat.virustotal.enabled) {
             const vtFormat = this.plugin.settings.outputFormat.virustotal.format;
             const vtOutput = vtFormat
@@ -1294,13 +1285,13 @@ class IPSettingTab extends PluginSettingTab {
                 .replace('{domain}', exampleData.abuseipdb.domain)
                 .replace('{hostnames}', exampleData.abuseipdb.hostnames.join(', '));
 
-                // Only include lastReported if there are reports
-                if (exampleData.abuseipdb.totalReports > 0) {
-                    abuseOutput = abuseOutput.replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported));
-                } else {
-                    // Remove the entire "last reported X" phrase when there are no reports
-                    abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
-                }
+            // Only include lastReported if there are reports
+            if (exampleData.abuseipdb.totalReports > 0) {
+                abuseOutput = abuseOutput.replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported));
+            } else {
+                // Remove the entire "last reported X" phrase when there are no reports
+                abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+            }
 
             output += `  - AbuseIPDB: ${abuseOutput}`;
         }
