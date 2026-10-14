@@ -1,129 +1,53 @@
-/* Plugin styles */
-.soc-toolkit-plugin .example-container {
-    margin: 16px 0;
-    padding: 12px;
-    background-color: var(--background-secondary);
-    border-radius: 4px;
+/* Plugin styles. Core setting layout is left to Obsidian; only plugin-specific elements are styled. */
+
+/* Settings whose content (input, preview, field tags) spans the full width below the name */
+.soc-toolkit-settings .soc-toolkit-wide {
+    flex-wrap: wrap;
+    row-gap: var(--size-4-2);
 }
 
-.soc-toolkit-plugin .example-content {
+.soc-toolkit-settings .soc-toolkit-wide .setting-item-control,
+.soc-toolkit-settings .soc-toolkit-wide .soc-toolkit-preview,
+.soc-toolkit-settings .soc-toolkit-wide .soc-toolkit-field-tags {
+    flex-basis: 100%;
+}
+
+.soc-toolkit-settings .soc-toolkit-wide .setting-item-control input {
+    width: 100%;
     font-family: var(--font-monospace);
-    white-space: pre-wrap;
-    word-break: break-all;
+}
+
+.soc-toolkit-settings .soc-toolkit-preview {
+    margin: 0;
+    padding: var(--size-4-3);
+    background-color: var(--code-background);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
     color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-.soc-toolkit-plugin .format-input-container {
-    width: 100%;
-}
-
-.soc-toolkit-plugin .format-input-container input {
-    width: 100%;
-    font-family: var(--font-monospace);
-}
-
-.soc-toolkit-plugin .field-tags {
+.soc-toolkit-settings .soc-toolkit-field-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--size-4-2);
 }
 
-.soc-toolkit-plugin .field-tag {
-    background-color: var(--background-secondary);
-    padding: 4px 8px;
-    border-radius: 4px;
+.soc-toolkit-settings .soc-toolkit-field-tag {
+    padding: var(--size-2-1) var(--size-4-2);
+    background-color: var(--background-modifier-hover);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
     font-family: var(--font-monospace);
-    font-size: 0.9em;
+    font-size: var(--font-ui-smaller);
     color: var(--text-muted);
     cursor: help;
-    position: relative;
 }
 
-.soc-toolkit-plugin .field-tag::before {
-    content: "?";
-    display: inline-block;
-    width: 14px;
-    height: 14px;
-    line-height: 14px;
-    text-align: center;
-    background-color: var(--text-muted);
-    color: var(--background-primary);
-    border-radius: 50%;
-    font-size: 10px;
-    margin-right: 4px;
-    font-family: var(--font-text);
-}
-
-.soc-toolkit-plugin .field-tag:hover {
-    background-color: var(--background-modifier-hover);
-}
-
-.soc-toolkit-plugin .field-tag:hover::after {
-    content: attr(data-description);
-    position: absolute;
-    bottom: 100%;
-    left: 0;
-    background-color: var(--background-primary);
+.soc-toolkit-settings .soc-toolkit-field-tag:hover {
     color: var(--text-normal);
-    padding: 8px;
-    border-radius: 4px;
-    font-size: 0.9em;
-    white-space: nowrap;
-    z-index: 1000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    pointer-events: none;
-    min-width: 200px;
-    max-width: 300px;
-    transform: none;
-    width: max-content;
-    box-sizing: border-box;
+    border-color: var(--background-modifier-border-hover);
 }
-
-.soc-toolkit-plugin .setting-item {
-    padding: 8px 0;
-}
-
-.soc-toolkit-plugin .setting-item-control {
-    margin-top: 8px;
-}
-
-.soc-toolkit-plugin .api-key-input {
-    width: 400px;
-}
-
-.soc-toolkit-plugin .api-key-input input {
-    width: 100%;
-    font-family: var(--font-monospace);
-}
-
-.soc-toolkit-plugin h2 {
-    margin: 32px 0 16px 0;
-    font-size: 1.4em;
-    font-weight: 600;
-    color: var(--text-normal);
-    padding-bottom: 8px;
-}
-
-.soc-toolkit-plugin h2.settings-section-header {
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.soc-toolkit-plugin h3 {
-    margin: 32px 0 16px 0;
-    font-size: 1.2em;
-    font-weight: 600;
-    color: var(--text-normal);
-    padding-bottom: 8px;
-}
-
-.soc-toolkit-plugin h3.settings-section-header {
-    border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.soc-toolkit-plugin h4 {
-    margin: 24px 0 12px 0;
-    font-size: 1em;
-    font-weight: 500;
-    color: var(--text-muted);
-} 
