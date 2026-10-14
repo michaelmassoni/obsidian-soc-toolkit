@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "fs";
 
-const targetVersion = process.argv[2];
+const targetVersion = process.argv[2] || process.env.npm_package_version;
 
 if (!targetVersion) {
     console.error("Please provide a target version");
