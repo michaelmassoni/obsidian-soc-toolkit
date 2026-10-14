@@ -8,7 +8,8 @@ An Obsidian plugin that provides a collection of tools for SOC analysts and cybe
   - Scans notes for both IPv4 and IPv6 addresses
   - Supports defanged IP addresses (e.g. `8[.]8[.]8[.]8` or `8.8.8[.]8`)
   - Checks IP reputation using VirusTotal and AbuseIPDB APIs
-  - Caches results to minimise API calls
+  - Caches results to minimise API calls, and skips IPs that are already annotated
+  - Respects the free VirusTotal rate limit (4 lookups per minute, configurable)
   - Customisable output format for both APIs
   - Example output preview
   - Right-click context menu for quick IP checks
@@ -54,6 +55,8 @@ Before you will be able to run IP reputation checks, you need to first configure
    - Highlight IPs you wish to check, and then open right-click menu and select "Check IP Reputation" 
    - Open the command palette (Ctrl/Cmd + P) and search for "Check IP reputation in current note"
 3. The plugin will add reputation data below each IP address. You can configure the output in the plugin settings.
+
+Lines that already have an annotation underneath are skipped, so re-running a check only looks up new IPs. With a free VirusTotal key, notes with more than 4 new IPs will take a little longer while the plugin waits for the rate limit.
 
 ### IP Defanging
 
