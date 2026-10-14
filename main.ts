@@ -118,6 +118,87 @@ function isValidIPv6(address: string): boolean {
 }
 
 /**
+ * Private, loopback, link-local, documentation and other special-use IPv4 ranges. They have no
+ * public reputation and shouldn't be sent to third-party APIs.
+ */
+const RESERVED_IPV4_RANGES: [string, number][] = [
+    ['0.0.0.0', 8],
+    ['10.0.0.0', 8],
+    ['100.64.0.0', 10],
+    ['127.0.0.0', 8],
+    ['169.254.0.0', 16],
+    ['172.16.0.0', 12],
+    ['192.0.0.0', 24],
+    ['192.0.2.0', 24],
+    ['192.168.0.0', 16],
+    ['198.18.0.0', 15],
+    ['198.51.100.0', 24],
+    ['203.0.113.0', 24],
+    ['224.0.0.0', 4], // multicast
+    ['240.0.0.0', 4] // reserved, including broadcast
+];
+
+function ipv4ToNumber(address: string): number {
+    return address.split('.').reduce((total, octet) => total * 256 + Number(octet), 0);
+}
+
+function isReservedIPv4(address: string): boolean {
+    const ip = ipv4ToNumber(address);
+    return RESERVED_IPV4_RANGES.some(([base, prefix]) => {
+        const size = 2 ** (32 - prefix);
+        return Math.floor(ip / size) === Math.floor(ipv4ToNumber(base) / size);
+    });
+}
+
+/**
+ * Expand a valid plain IPv6 address into its eight 16-bit groups
+ */
+function ipv6Groups(address: string): number[] {
+    const addr = address.split('%')[0].replace(/(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/, (_, a, b, c, d) =>
+        `${(Number(a) * 256 + Number(b)).toString(16)}:${(Number(c) * 256 + Number(d)).toString(16)}`);
+    const [head, tail] = addr.split('::');
+    const toNumbers = (part: string | undefined) => part ? part.split(':').map(group => parseInt(group, 16)) : [];
+    const headGroups = toNumbers(head);
+    const tailGroups = toNumbers(tail);
+    const zeros = tail === undefined ? [] : new Array(8 - headGroups.length - tailGroups.length).fill(0);
+    return [...headGroups, ...zeros, ...tailGroups];
+}
+
+function isReservedIPv6(address: string): boolean {
+    const groups = ipv6Groups(address);
+    // ::/96 covers unspecified (::), loopback (::1) and deprecated IPv4-compatible addresses
+    if (groups.slice(0, 6).every(group => group === 0)) {
+        return true;
+    }
+    // IPv4-mapped (::ffff:1.2.3.4): judge by the embedded IPv4 address
+    if (groups.slice(0, 5).every(group => group === 0) && groups[5] === 0xffff) {
+        return isReservedIPv4([groups[6] >> 8, groups[6] & 0xff, groups[7] >> 8, groups[7] & 0xff].join('.'));
+    }
+    return (groups[0] & 0xfe00) === 0xfc00 // unique local (fc00::/7)
+        || (groups[0] & 0xffc0) === 0xfe80 // link-local (fe80::/10)
+        || (groups[0] & 0xff00) === 0xff00 // multicast (ff00::/8)
+        || (groups[0] === 0x2001 && groups[1] === 0x0db8) // documentation (2001:db8::/32)
+        || (groups[0] === 0x0100 && groups[1] === 0 && groups[2] === 0 && groups[3] === 0); // discard (100::/64)
+}
+
+/**
+ * Check whether a plain IP address is private or otherwise not publicly routable
+ */
+function isReservedIP(ip: string): boolean {
+    return ip.includes(':') ? isReservedIPv6(ip) : isReservedIPv4(ip);
+}
+
+/**
+ * A reputation line written by this plugin, with or without a link on the provider name
+ */
+const ANNOTATION_REGEX = /^\s*- (?:\[(?:VirusTotal|AbuseIPDB)\]\([^)]*\)|VirusTotal|AbuseIPDB):/;
+
+/**
+ * Report links in annotations. The IPs inside them are left alone when defanging so the links keep working.
+ */
+const PROVIDER_LINK_REGEX = /\]\(https:\/\/www\.(?:virustotal|abuseipdb)\.com\/[^)\s]*\)/g;
+
+/**
  * Find all IP addresses (plain or defanged) in text, in order of appearance, refanged
  */
 function findIPs(text: string): string[] {
@@ -236,6 +317,7 @@ interface IPSettings {
     abuseipdbApiKey?: string;
     cacheDuration: number; // in hours
     defangingMethod: 'all-dots' | 'last-dot';
+    includeLinks: boolean; // link the provider name in annotations to its report
     outputFormat: {
         virustotal: {
             enabled: boolean;
@@ -256,6 +338,7 @@ const DEFAULT_SETTINGS: IPSettings = {
     abuseipdbSecret: '',
     cacheDuration: 24,
     defangingMethod: 'all-dots', // default to replacing all dots
+    includeLinks: true,
     outputFormat: {
         virustotal: {
             enabled: true,
@@ -272,6 +355,13 @@ const PROVIDER_NAMES: { [provider in Provider]: string } = {
     virustotal: 'VirusTotal',
     abuseipdb: 'AbuseIPDB'
 };
+
+const PROVIDER_REPORT_URLS: { [provider in Provider]: (ip: string) => string } = {
+    virustotal: ip => `https://www.virustotal.com/gui/ip-address/${ip}`,
+    abuseipdb: ip => `https://www.abuseipdb.com/check/${ip}`
+};
+
+type IPTransform = 'defang' | 'refang';
 
 /**
  * Main plugin class for IP Reputation Checker
@@ -305,43 +395,64 @@ export default class IPReputationPlugin extends Plugin {
             }
         });
 
-        // Add command to defang IPs in current note
+        // Defang and refang commands, for the whole note or the highlighted area
         this.addCommand({
             id: 'defang-ips',
             name: 'Defang IPs in current note',
-            callback: () => this.defangIPsInNote()
+            editorCallback: (editor) => this.transformIPs(editor, 'defang', false)
         });
 
-        // Add command to defang IPs in highlighted area
         this.addCommand({
             id: 'defang-ips-highlighted',
             name: 'Defang IPs in highlighted area',
-            callback: () => this.defangIPsInHighlighted()
+            editorCallback: (editor) => this.transformIPs(editor, 'defang', true)
         });
 
-        // Add right-click menu items
+        this.addCommand({
+            id: 'refang-ips',
+            name: 'Refang IPs in current note',
+            editorCallback: (editor) => this.transformIPs(editor, 'refang', false)
+        });
+
+        this.addCommand({
+            id: 'refang-ips-highlighted',
+            name: 'Refang IPs in highlighted area',
+            editorCallback: (editor) => this.transformIPs(editor, 'refang', true)
+        });
+
+        // Add right-click menu items, only offering the actions that apply to the selection
         this.registerEvent(
             this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor, info: MarkdownView | MarkdownFileInfo) => {
                 const selectedText = editor.getSelection();
-                if (selectedText) {
-                    const ip = this.findIP(selectedText);
-                    if (ip) {
-                        menu.addItem((item: MenuItem) => {
-                            item
-                                .setTitle('Check IP reputation')
-                                .setIcon('search')
-                                .onClick(() => this.annotateSelection(editor, info));
-                        });
+                if (!selectedText) {
+                    return;
+                }
 
-                        menu.addItem((item: MenuItem) => {
-                            item
-                                .setTitle('Defang IP address(es)')
-                                .setIcon('shield')
-                                .onClick(() => {
-                                    this.defangIPsInHighlighted();
-                                });
-                        });
-                    }
+                if (this.findIP(selectedText)) {
+                    menu.addItem((item: MenuItem) => {
+                        item
+                            .setTitle('Check IP reputation')
+                            .setIcon('search')
+                            .onClick(() => this.annotateSelection(editor, info));
+                    });
+                }
+
+                if (this.ipTransformEdits(selectedText, 'defang').length > 0) {
+                    menu.addItem((item: MenuItem) => {
+                        item
+                            .setTitle('Defang IP address(es)')
+                            .setIcon('shield')
+                            .onClick(() => this.transformIPs(editor, 'defang', true));
+                    });
+                }
+
+                if (this.ipTransformEdits(selectedText, 'refang').length > 0) {
+                    menu.addItem((item: MenuItem) => {
+                        item
+                            .setTitle('Refang IP address(es)')
+                            .setIcon('shield-off')
+                            .onClick(() => this.transformIPs(editor, 'refang', true));
+                    });
                 }
             })
         );
@@ -452,8 +563,11 @@ export default class IPReputationPlugin extends Plugin {
     /**
      * Generate the annotation text for the reputation data
      */
-    public generateAnnotation(reputation: IPReputationData, indentPrefix: string): string {
+    public generateAnnotation(ip: string, reputation: IPReputationData, indentPrefix: string): string {
         const lines: string[] = [];
+        const label = (provider: Provider) => this.settings.includeLinks
+            ? `[${PROVIDER_NAMES[provider]}](${PROVIDER_REPORT_URLS[provider](ip)})`
+            : PROVIDER_NAMES[provider];
 
         if (this.settings.outputFormat.virustotal.enabled) {
             const vt = reputation.virustotal;
@@ -472,7 +586,7 @@ export default class IPReputationPlugin extends Plugin {
                 network: vt.network,
                 tags: vt.tags.join(', ')
             });
-            lines.push(`${indentPrefix}- VirusTotal: ${vtOutput}`);
+            lines.push(`${indentPrefix}- ${label('virustotal')}: ${vtOutput}`);
         }
 
         if (this.settings.outputFormat.abuseipdb.enabled) {
@@ -497,7 +611,7 @@ export default class IPReputationPlugin extends Plugin {
                 domain: abuse.domain,
                 hostnames: abuse.hostnames.join(', ')
             });
-            lines.push(`${indentPrefix}- AbuseIPDB: ${abuseOutput}`);
+            lines.push(`${indentPrefix}- ${label('abuseipdb')}: ${abuseOutput}`);
         }
 
         return lines.length > 0 ? '\n' + lines.join('\n') : '';
@@ -521,8 +635,7 @@ export default class IPReputationPlugin extends Plugin {
         if (lineIndex >= editor.lineCount() - 1) {
             return false;
         }
-        const next = editor.getLine(lineIndex + 1).trim();
-        return next.startsWith('- VirusTotal:') || next.startsWith('- AbuseIPDB:');
+        return ANNOTATION_REGEX.test(editor.getLine(lineIndex + 1));
     }
 
     /**
@@ -534,20 +647,35 @@ export default class IPReputationPlugin extends Plugin {
 
         const ips = new Set<string>();
         let annotatedCount = 0;
+        let reservedCount = 0;
         for (let i = fromLine; i <= toLine; i++) {
-            const ip = this.findIP(editor.getLine(i));
+            const line = editor.getLine(i);
+            // Annotation lines contain the IP in their report links
+            const ip = ANNOTATION_REGEX.test(line) ? null : this.findIP(line);
             if (!ip) {
                 continue;
             }
-            if (this.hasAnnotation(editor, i)) {
+            if (isReservedIP(ip)) {
+                reservedCount++;
+            } else if (this.hasAnnotation(editor, i)) {
                 annotatedCount++;
             } else {
                 ips.add(ip);
             }
         }
 
+        const skipped: string[] = [];
+        if (annotatedCount > 0) {
+            skipped.push(`${annotatedCount} already annotated`);
+        }
+        if (reservedCount > 0) {
+            skipped.push(`${reservedCount} private/reserved`);
+        }
+
         if (ips.size === 0) {
-            new Notice(annotatedCount > 0 ? 'All IP addresses are already annotated' : 'No valid IP addresses found');
+            new Notice(skipped.length > 0
+                ? `No new public IP addresses to check (skipped ${skipped.join(', ')})`
+                : 'No valid IP addresses found');
             return;
         }
 
@@ -581,12 +709,12 @@ export default class IPReputationPlugin extends Plugin {
         const changes: EditorChange[] = [];
         for (let i = fromLine; i <= Math.min(toLine, editor.lastLine()); i++) {
             const line = editor.getLine(i);
-            const ip = this.findIP(line);
+            const ip = ANNOTATION_REGEX.test(line) ? null : this.findIP(line);
             const reputation = ip ? results.get(ip) : undefined;
-            if (reputation && !this.hasAnnotation(editor, i)) {
+            if (ip && reputation && !this.hasAnnotation(editor, i)) {
                 changes.push({
                     from: { line: i, ch: line.length },
-                    text: this.generateAnnotation(reputation, this.getIndentPrefix(line))
+                    text: this.generateAnnotation(ip, reputation, this.getIndentPrefix(line))
                 });
             }
         }
@@ -595,8 +723,8 @@ export default class IPReputationPlugin extends Plugin {
         }
 
         let message = `Checked ${results.size} IP address(es)`;
-        if (annotatedCount > 0) {
-            message += `, skipped ${annotatedCount} already annotated`;
+        if (skipped.length > 0) {
+            message += `, skipped ${skipped.join(', ')}`;
         }
         if (errors.length > 0) {
             message += `\n\n${errors.length} failed:\n${errors.slice(0, 3).join('\n')}`;
@@ -608,77 +736,64 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Defang IPs in the current note
+     * Defang or refang the IPs in the note or the selection, as a single edit
      */
-    private defangIPsInNote() {
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!activeView) {
-            new Notice('No active note found');
+    private transformIPs(editor: Editor, transform: IPTransform, selectionOnly: boolean) {
+        let text = editor.getValue();
+        let offset = 0;
+        if (selectionOnly) {
+            text = editor.getSelection();
+            if (!text) {
+                new Notice('No text selected');
+                return;
+            }
+            offset = editor.posToOffset(editor.getCursor('from'));
+        }
+
+        const edits = this.ipTransformEdits(text, transform);
+        if (edits.length === 0) {
+            new Notice(transform === 'defang' ? 'No IP addresses found to defang' : 'No defanged IP addresses found');
             return;
         }
 
-        const editor = activeView.editor;
-        const { text, count } = this.defangIPsInText(editor.getValue());
-
-        if (count > 0) {
-            editor.setValue(text);
-            new Notice(`Defanged ${count} IP address(es)`);
-        } else {
-            new Notice('No IP addresses found to defang');
-        }
+        // Edit only the IPs themselves, so the cursor and the rest of the note are untouched
+        editor.transaction({
+            changes: edits.map(edit => ({
+                from: editor.offsetToPos(offset + edit.start),
+                to: editor.offsetToPos(offset + edit.end),
+                text: edit.text
+            }))
+        });
+        new Notice(`${transform === 'defang' ? 'Defanged' : 'Refanged'} ${edits.length} IP address(es)`);
     }
 
     /**
-     * Defang IPs in the highlighted area
+     * Find the edits that defang plain IPs (or refang defanged ones) in text, as offsets into text
      */
-    private defangIPsInHighlighted() {
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!activeView) {
-            new Notice('No active note found');
-            return;
-        }
+    private ipTransformEdits(text: string, transform: IPTransform): { start: number; end: number; text: string }[] {
+        const linkRanges = allMatches(PROVIDER_LINK_REGEX, text).map(m => ({ start: m.index, end: m.index + m[0].length }));
+        const edits: { start: number; end: number; text: string }[] = [];
+        const overlaps = (start: number, end: number) =>
+            [...linkRanges, ...edits].some(range => start < range.end && end > range.start);
 
-        const editor = activeView.editor;
-        const selectedText = editor.getSelection();
-        if (!selectedText) {
-            new Notice('No text selected');
-            return;
-        }
-
-        const { text, count } = this.defangIPsInText(selectedText);
-
-        if (count > 0) {
-            editor.replaceSelection(text);
-            new Notice(`Defanged ${count} IP address(es)`);
-        } else {
-            new Notice('No IP addresses found to defang');
-        }
-    }
-
-    /**
-     * Defang every plain IP address in text. Already-defanged addresses are left alone.
-     */
-    private defangIPsInText(text: string): { text: string; count: number } {
-        let count = 0;
-
-        // IPv6 first, so an embedded IPv4 address (::ffff:1.2.3.4) is matched as part of it
-        let newText = text.replace(new RegExp(IPV6_PLAIN_REGEX.source, 'g'), (match) => {
-            if (!isValidIPv6(match)) {
-                return match;
+        // IPv6 first, so an embedded IPv4 address (::ffff:1.2.3.4) is handled as part of it
+        const regexes = transform === 'defang' ? [IPV6_PLAIN_REGEX, IPV4_PLAIN_REGEX] : [IPV6_REGEX, IPV4_REGEX];
+        for (const regex of regexes) {
+            for (const match of allMatches(regex, text)) {
+                const start = match.index;
+                const end = start + match[0].length;
+                const plain = match[0].replace(/\[\.\]/g, '.').replace(/\[:\]/g, ':');
+                const valid = plain.includes(':') ? isValidIPv6(plain) : isValidIPv4(plain);
+                if (!valid || overlaps(start, end)) {
+                    continue;
+                }
+                const replacement = transform === 'defang' ? this.defangIP(plain) : plain;
+                if (replacement !== match[0]) {
+                    edits.push({ start, end, text: replacement });
+                }
             }
-            count++;
-            return this.defangIP(match);
-        });
-
-        newText = newText.replace(new RegExp(IPV4_PLAIN_REGEX.source, 'g'), (match) => {
-            if (!isValidIPv4(match)) {
-                return match;
-            }
-            count++;
-            return this.defangIP(match);
-        });
-
-        return { text: newText, count };
+        }
+        return edits.sort((a, b) => a.start - b.start);
     }
 
     /**
@@ -688,7 +803,9 @@ export default class IPReputationPlugin extends Plugin {
         // Handle IPv6 addresses
         if (ip.includes(':')) {
             // Replace only single ':' with '[:]', leave '::' untouched (this is due to how Obsidian handles "[::]" in markdown)
-            return ip.replace(/(?<!:):(?!:)/g, '[:]');
+            // An embedded IPv4 address (::ffff:1.2.3.4) is defanged like any other
+            return ip.replace(/(?<!:):(?!:)/g, '[:]')
+                .replace(/\d{1,3}(?:\.\d{1,3}){3}$/, ipv4 => this.defangIP(ipv4));
         }
         // Handle IPv4 addresses
         if (this.settings.defangingMethod === 'last-dot') {
@@ -988,7 +1105,17 @@ class IPSettingTab extends PluginSettingTab {
                     .setDesc('How annotations will appear under an IP in your notes');
                 setting.settingEl.addClass('soc-toolkit-wide');
                 this.previewEl = setting.settingEl.createEl('pre', { cls: 'soc-toolkit-preview' });
-            });
+            })
+            .addSetting(setting => setting
+                .setName('Link to reports')
+                .setDesc('Make the provider name in each annotation a link to its full report for that IP')
+                .addToggle(toggle => toggle
+                    .setValue(this.plugin.settings.includeLinks)
+                    .onChange(async (value) => {
+                        this.plugin.settings.includeLinks = value;
+                        await this.plugin.saveSettings();
+                        this.updateExampleOutput();
+                    })));
         this.updateExampleOutput();
 
         this.addProviderGroup(containerEl, 'VirusTotal', 'virustotal', VIRUSTOTAL_FIELDS);
@@ -1074,7 +1201,7 @@ class IPSettingTab extends PluginSettingTab {
             }
         };
 
-        return '8.8.8.8' + this.plugin.generateAnnotation(exampleData, '  ');
+        return '8.8.8.8' + this.plugin.generateAnnotation('8.8.8.8', exampleData, '  ');
     }
 
     private updateExampleOutput() {
