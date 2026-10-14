@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, request, Menu, MenuItem } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, SecretComponent, SettingGroup, request, Menu, MenuItem, setTooltip } from 'obsidian';
 
 /**
  * Interface for storing IP reputation data from both VirusTotal and AbuseIPDB
@@ -236,12 +236,176 @@ const COUNTRY_CODES: { [key: string]: string } = {
     'ZW': 'Zimbabwe'
 };
 
+type VirusTotalReputation = IPReputationData['virustotal'];
+type AbuseIPDBReputation = IPReputationData['abuseipdb'];
+
+/**
+ * IPv4 addresses, plain or defanged (fully or partially, e.g. 1[.]2[.]3[.]4 or 1.2.3[.]4)
+ */
+const IPV4_REGEX = /\b\d{1,3}(?:(?:\.|\[\.\])\d{1,3}){3}\b/g;
+const IPV4_PLAIN_REGEX = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
+
+/**
+ * IPv6 candidates, plain or defanged with [:]. These over-match (e.g. 12:30:45), so every
+ * match must be checked with isValidIPv6. The embedded IPv4 alternative comes first so
+ * that ::ffff:1.2.3.4 isn't cut off at the first dot.
+ */
+const IPV6_REGEX = /(?<![0-9A-Za-z:.[\]])(?:[0-9a-fA-F]{0,4}(?::|\[:\])){2,7}(?:\d{1,3}(?:(?:\.|\[\.\])\d{1,3}){3}|[0-9a-fA-F]{1,4})?(?:%[0-9A-Za-z]+)?(?![0-9A-Za-z:])/g;
+const IPV6_PLAIN_REGEX = /(?<![0-9A-Za-z:.[\]])(?:[0-9a-fA-F]{0,4}:){2,7}(?:\d{1,3}(?:\.\d{1,3}){3}|[0-9a-fA-F]{1,4})?(?:%[0-9A-Za-z]+)?(?![0-9A-Za-z:])/g;
+
+/**
+ * Run a global regex over text without sharing lastIndex state between calls
+ */
+function allMatches(regex: RegExp, text: string): RegExpExecArray[] {
+    const re = new RegExp(regex.source, 'g');
+    const matches: RegExpExecArray[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(text)) !== null) {
+        matches.push(match);
+    }
+    return matches;
+}
+
+/**
+ * Turn a (possibly defanged) IP back into its plain form
+ */
+function refangIP(ip: string): string {
+    return ip.replace(/\[\.\]/g, '.').replace(/\[:\]/g, ':').toLowerCase();
+}
+
+/**
+ * Check that a plain IPv6 string has valid groups and at most one '::'
+ */
+function isValidIPv6(address: string): boolean {
+    // An embedded IPv4 address takes up the last two groups
+    const addr = address.split('%')[0].replace(/\d{1,3}(?:\.\d{1,3}){3}$/, '0:0');
+    const halves = addr.split('::');
+    if (halves.length > 2) {
+        return false;
+    }
+
+    const toGroups = (part: string) => part === '' ? [] : part.split(':');
+    const groups = [...toGroups(halves[0]), ...(halves.length === 2 ? toGroups(halves[1]) : [])];
+    if (!groups.every(group => /^[0-9a-fA-F]{1,4}$/.test(group))) {
+        return false;
+    }
+    return halves.length === 2 ? groups.length <= 7 : groups.length === 8;
+}
+
+/**
+ * Find all IP addresses (plain or defanged) in text, in order of appearance, refanged
+ */
+function findIPs(text: string): string[] {
+    const found: { start: number; end: number; ip: string }[] = [];
+
+    for (const match of allMatches(IPV6_REGEX, text)) {
+        const ip = refangIP(match[0]);
+        if (isValidIPv6(ip)) {
+            found.push({ start: match.index, end: match.index + match[0].length, ip });
+        }
+    }
+
+    for (const match of allMatches(IPV4_REGEX, text)) {
+        const start = match.index;
+        const end = start + match[0].length;
+        // Skip IPv4 addresses embedded in an IPv6 address (e.g. ::ffff:1.2.3.4)
+        if (!found.some(f => start < f.end && end > f.start)) {
+            found.push({ start, end, ip: refangIP(match[0]) });
+        }
+    }
+
+    return found.sort((a, b) => a.start - b.start).map(f => f.ip);
+}
+
+/**
+ * Replace {field} placeholders with values. Unknown fields are left as-is.
+ */
+function fillTemplate(template: string, values: { [field: string]: string }): string {
+    return template.replace(/\{(\w+)\}/g, (placeholder, field) =>
+        Object.prototype.hasOwnProperty.call(values, field) ? values[field] : placeholder);
+}
+
+function emptyVirusTotalReputation(): VirusTotalReputation {
+    return {
+        maliciousCount: 0,
+        totalVendors: 0,
+        lastChecked: 0,
+        harmlessCount: 0,
+        suspiciousCount: 0,
+        timeoutCount: 0,
+        undetectedCount: 0,
+        lastAnalysisDate: '',
+        country: '',
+        asOwner: '',
+        asn: '',
+        network: '',
+        tags: []
+    };
+}
+
+function emptyAbuseIPDBReputation(): AbuseIPDBReputation {
+    return {
+        confidenceScore: 0,
+        lastReported: '',
+        lastChecked: 0,
+        totalReports: 0,
+        numDistinctUsers: 0,
+        lastReportedAt: '',
+        isPublic: false,
+        isWhitelisted: false,
+        countryCode: '',
+        countryName: '',
+        usageType: '',
+        domain: '',
+        hostnames: []
+    };
+}
+
+/**
+ * Fields available in the output format strings, shown as tags in the settings
+ */
+const VIRUSTOTAL_FIELDS = [
+    { name: '{maliciousCount}', desc: 'Number of vendors that flagged the IP as malicious' },
+    { name: '{totalVendors}', desc: 'Total number of vendors that analyzed the IP' },
+    { name: '{harmlessCount}', desc: 'Number of vendors that flagged the IP as harmless' },
+    { name: '{suspiciousCount}', desc: 'Number of vendors that flagged the IP as suspicious' },
+    { name: '{timeoutCount}', desc: 'Number of vendors that timed out while analyzing' },
+    { name: '{undetectedCount}', desc: 'Number of vendors that didn\'t detect anything' },
+    { name: '{lastAnalysisDate}', desc: 'Date of the last analysis' },
+    { name: '{country}', desc: 'Country where the IP is located' },
+    { name: '{asOwner}', desc: 'Autonomous System owner' },
+    { name: '{asn}', desc: 'Autonomous System Number' },
+    { name: '{network}', desc: 'Network/CIDR block' },
+    { name: '{tags}', desc: 'List of tags associated with the IP' }
+];
+
+const ABUSEIPDB_FIELDS = [
+    { name: '{confidenceScore}', desc: 'Confidence score of abuse (0-100)' },
+    { name: '{lastReported}', desc: 'Time since the IP was last reported' },
+    { name: '{totalReports}', desc: 'Total number of reports for this IP' },
+    { name: '{numDistinctUsers}', desc: 'Number of distinct users who reported this IP' },
+    { name: '{lastReportedAt}', desc: 'Raw timestamp of the last report' },
+    { name: '{isPublic}', desc: 'Whether the IP is public' },
+    { name: '{isWhitelisted}', desc: 'Whether the IP is whitelisted' },
+    { name: '{countryCode}', desc: 'Two-letter country code' },
+    { name: '{countryName}', desc: 'Full country name' },
+    { name: '{usageType}', desc: 'Type of usage (e.g., "Data Center", "ISP")' },
+    { name: '{domain}', desc: 'Associated domain name' },
+    { name: '{hostnames}', desc: 'List of associated hostnames' }
+];
+
 /**
  * Plugin settings interface
  */
+type Provider = 'virustotal' | 'abuseipdb';
+
 interface IPSettings {
-    virustotalApiKey: string;
-    abuseipdbApiKey: string;
+    // Names of secrets in Obsidian's secret storage, not the API keys themselves
+    virustotalSecret: string;
+    abuseipdbSecret: string;
+    // Plaintext keys saved by older versions, moved into secret storage on load
+    virustotalApiKey?: string;
+    abuseipdbApiKey?: string;
     cacheDuration: number; // in hours
     defangingMethod: 'all-dots' | 'last-dot'; // new setting
     outputFormat: {
@@ -262,8 +426,8 @@ interface IPSettings {
  * Default plugin settings
  */
 const DEFAULT_SETTINGS: IPSettings = {
-    virustotalApiKey: '',
-    abuseipdbApiKey: '',
+    virustotalSecret: '',
+    abuseipdbSecret: '',
     cacheDuration: 24,
     defangingMethod: 'all-dots', // default to replacing all dots
     outputFormat: {
@@ -309,7 +473,7 @@ const DEFAULT_SETTINGS: IPSettings = {
  */
 export default class IPReputationPlugin extends Plugin {
     settings: IPSettings;
-    ipCache: Map<string, IPReputationData> = new Map();
+    ipCache: Map<string, { virustotal?: VirusTotalReputation; abuseipdb?: AbuseIPDBReputation }> = new Map();
 
     async onload() {
         await this.loadSettings();
@@ -391,6 +555,62 @@ export default class IPReputationPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        await this.migrateApiKeys();
+    }
+
+    /**
+     * Move plaintext API keys saved by older versions into Obsidian's secret storage
+     */
+    private async migrateApiKeys() {
+        let migrated = false;
+
+        for (const provider of ['virustotal', 'abuseipdb'] as const) {
+            const legacyKey = provider === 'virustotal' ? this.settings.virustotalApiKey : this.settings.abuseipdbApiKey;
+            if (legacyKey === undefined) {
+                continue;
+            }
+
+            if (legacyKey) {
+                const secretId = `soc-toolkit-${provider}-api-key`;
+                const existing = this.app.secretStorage.getSecret(secretId);
+                if (existing !== null && existing !== legacyKey) {
+                    // Don't overwrite a different secret; keep using the legacy key until the user picks one
+                    console.warn(`SOC Toolkit: secret "${secretId}" already exists, leaving ${provider} API key unmigrated`);
+                    continue;
+                }
+                try {
+                    this.app.secretStorage.setSecret(secretId, legacyKey);
+                } catch (error) {
+                    console.error(`SOC Toolkit: failed to move ${provider} API key into secret storage`, error);
+                    continue;
+                }
+                if (provider === 'virustotal') {
+                    this.settings.virustotalSecret = secretId;
+                } else {
+                    this.settings.abuseipdbSecret = secretId;
+                }
+            }
+
+            if (provider === 'virustotal') {
+                delete this.settings.virustotalApiKey;
+            } else {
+                delete this.settings.abuseipdbApiKey;
+            }
+            migrated = true;
+        }
+
+        if (migrated) {
+            await this.saveSettings();
+        }
+    }
+
+    /**
+     * Get a provider's API key from secret storage (or an unmigrated legacy key)
+     */
+    private getApiKey(provider: Provider): string {
+        const secretId = provider === 'virustotal' ? this.settings.virustotalSecret : this.settings.abuseipdbSecret;
+        const legacyKey = provider === 'virustotal' ? this.settings.virustotalApiKey : this.settings.abuseipdbApiKey;
+        return (secretId && this.app.secretStorage.getSecret(secretId)) || legacyKey || '';
     }
 
     async saveSettings() {
@@ -398,51 +618,11 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Refang a defanged IP address
-     * @param ip The defanged IP address
-     * @returns The refanged IP address
-     */
-    private refangIP(ip: string): string {
-        // Handle IPv6 addresses
-        if (ip.includes('[:]')) {
-            // Replace [:] with :
-            return ip.replace(/\[:\]/g, ':');
-        }
-
-        // Handle IPv4 addresses
-        return ip.replace(/\[\.\]/g, '.');
-    }
-
-    /**
-     * Check if a string is a valid IP address (including defanged)
-     * @param text The text to check
-     * @returns The matched IP address or null
+     * Find the first IP address (plain or defanged) in text
+     * @returns The refanged IP address or null
      */
     private findIP(text: string): string | null {
-        // First try to match a defanged IP
-        const defangedIPv4Regex = /\b(?:\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3}\[\.\]\d{1,3})\b/;
-        const defangedIPv4LastDotRegex = /\b(?:\d{1,3}\.\d{1,3}\.\d{1,3}\[\.\]\d{1,3})\b/;
-        const defangedIPv6Regex = /\b(?:[0-9a-fA-F]{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4}\[:\]\d{1,4})\b/;
-
-        // Try to match a defanged IP
-        let match = defangedIPv4Regex.exec(text) ||
-            defangedIPv4LastDotRegex.exec(text) ||
-            defangedIPv6Regex.exec(text);
-        if (match) {
-            const refanged = this.refangIP(match[0]);
-            return refanged;
-        }
-
-        // If no defanged IP found, try to match a regular IP
-        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
-        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/;
-
-        match = ipv4Regex.exec(text) || ipv6Regex.exec(text);
-        if (match) {
-            return match[0];
-        }
-
-        return null;
+        return findIPs(text)[0] ?? null;
     }
 
     /**
@@ -461,56 +641,54 @@ export default class IPReputationPlugin extends Plugin {
     /**
      * Generate the annotation text for the reputation data
      */
-    private generateAnnotation(reputation: IPReputationData, indentPrefix: string): string {
-        let annotation = '\n';
+    public generateAnnotation(reputation: IPReputationData, indentPrefix: string): string {
+        const lines: string[] = [];
 
         if (this.settings.outputFormat.virustotal.enabled) {
-            const vtFormat = this.settings.outputFormat.virustotal.format;
-            const vtOutput = vtFormat
-                .replace('{maliciousCount}', reputation.virustotal.maliciousCount.toString())
-                .replace('{totalVendors}', reputation.virustotal.totalVendors.toString())
-                .replace('{harmlessCount}', reputation.virustotal.harmlessCount.toString())
-                .replace('{suspiciousCount}', reputation.virustotal.suspiciousCount.toString())
-                .replace('{timeoutCount}', reputation.virustotal.timeoutCount.toString())
-                .replace('{undetectedCount}', reputation.virustotal.undetectedCount.toString())
-                .replace('{lastAnalysisDate}', reputation.virustotal.lastAnalysisDate)
-                .replace('{country}', reputation.virustotal.country)
-                .replace('{asOwner}', reputation.virustotal.asOwner)
-                .replace('{asn}', reputation.virustotal.asn)
-                .replace('{network}', reputation.virustotal.network)
-                .replace('{tags}', reputation.virustotal.tags.length > 0 ? reputation.virustotal.tags.join(', ') : 'N/A');
-            annotation += `${indentPrefix}- VirusTotal: ${vtOutput}\n`;
+            const vt = reputation.virustotal;
+            const vtOutput = fillTemplate(this.settings.outputFormat.virustotal.format, {
+                maliciousCount: vt.maliciousCount.toString(),
+                totalVendors: vt.totalVendors.toString(),
+                harmlessCount: vt.harmlessCount.toString(),
+                suspiciousCount: vt.suspiciousCount.toString(),
+                timeoutCount: vt.timeoutCount.toString(),
+                undetectedCount: vt.undetectedCount.toString(),
+                lastAnalysisDate: String(vt.lastAnalysisDate),
+                country: vt.country,
+                asOwner: vt.asOwner,
+                asn: String(vt.asn),
+                network: vt.network,
+                tags: vt.tags.length > 0 ? vt.tags.join(', ') : 'N/A'
+            });
+            lines.push(`${indentPrefix}- VirusTotal: ${vtOutput}`);
         }
 
         if (this.settings.outputFormat.abuseipdb.enabled) {
-            const abuseFormat = this.settings.outputFormat.abuseipdb.format;
-            let abuseOutput = abuseFormat
-                .replace('{confidenceScore}', reputation.abuseipdb.confidenceScore.toString())
-                .replace('{totalReports}', reputation.abuseipdb.totalReports.toString())
-                .replace('{numDistinctUsers}', reputation.abuseipdb.numDistinctUsers.toString())
-                .replace('{lastReportedAt}', reputation.abuseipdb.lastReportedAt)
-                .replace('{isPublic}', reputation.abuseipdb.isPublic.toString())
-                .replace('{isWhitelisted}', reputation.abuseipdb.isWhitelisted.toString())
-                .replace('{countryCode}', reputation.abuseipdb.countryCode)
-                .replace('{countryName}', reputation.abuseipdb.countryName)
-                .replace('{usageType}', reputation.abuseipdb.usageType)
-                .replace('{domain}', reputation.abuseipdb.domain)
-                .replace('{hostnames}', reputation.abuseipdb.hostnames.join(', '));
-
-            if (reputation.abuseipdb.totalReports > 0) {
-                abuseOutput = abuseOutput.replace('{lastReported}', this.getTimeAgo(reputation.abuseipdb.lastReported));
-            } else {
-                abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
+            const abuse = reputation.abuseipdb;
+            const hasReports = abuse.totalReports > 0;
+            let abuseFormat = this.settings.outputFormat.abuseipdb.format;
+            if (!hasReports) {
+                // Drop the default "last reported" phrase; any other use of the field shows "never"
+                abuseFormat = abuseFormat.replace(/,?\s*last reported \{lastReported\}/g, '');
             }
-            annotation += `${indentPrefix}- AbuseIPDB: ${abuseOutput}`;
+            const abuseOutput = fillTemplate(abuseFormat, {
+                confidenceScore: abuse.confidenceScore.toString(),
+                lastReported: hasReports ? this.getTimeAgo(abuse.lastReported) : 'never',
+                totalReports: abuse.totalReports.toString(),
+                numDistinctUsers: abuse.numDistinctUsers.toString(),
+                lastReportedAt: abuse.lastReportedAt,
+                isPublic: abuse.isPublic.toString(),
+                isWhitelisted: abuse.isWhitelisted.toString(),
+                countryCode: abuse.countryCode,
+                countryName: abuse.countryName,
+                usageType: abuse.usageType,
+                domain: abuse.domain,
+                hostnames: abuse.hostnames.join(', ')
+            });
+            lines.push(`${indentPrefix}- AbuseIPDB: ${abuseOutput}`);
         }
 
-        // If the annotation ends with a newline (e.g. only VT enabled), remove it to avoid double newlines when appending
-        if (annotation.endsWith('\n')) {
-            annotation = annotation.slice(0, -1);
-        }
-
-        return annotation;
+        return lines.length > 0 ? '\n' + lines.join('\n') : '';
     }
 
     /**
@@ -531,19 +709,9 @@ export default class IPReputationPlugin extends Plugin {
                 try {
                     const reputation = await this.getIPReputation(ip);
 
-                    // Annotate this line
-                    const fullyDefangedIP = ip.replace(/\./g, '[.]');
-                    const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
-                    const plainIP = ip;
-                    let annotatedLine = line;
-
-                    // Check if this line contains any version of our IP
-                    if (line.includes(plainIP) || line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
-                        const indentPrefix = this.getIndentPrefix(line);
-                        const annotation = this.generateAnnotation(reputation, indentPrefix);
-                        annotatedLine += annotation;
-                    }
-                    annotatedLines.push(annotatedLine);
+                    // The IP was found on this line, so annotate it directly
+                    const indentPrefix = this.getIndentPrefix(line);
+                    annotatedLines.push(line + this.generateAnnotation(reputation, indentPrefix));
                     checkedCount++;
                 } catch (error) {
                     console.error(`Error checking IP ${ip}:`, error);
@@ -610,28 +778,11 @@ export default class IPReputationPlugin extends Plugin {
         }
 
         const editor = activeView.editor;
-        const content = editor.getValue();
-        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/g;
+        const { text, count } = this.defangIPsInText(editor.getValue());
 
-        let newContent = content;
-        let defangedCount = 0;
-
-        // Process IPv4 addresses
-        newContent = newContent.replace(ipv4Regex, (match) => {
-            defangedCount++;
-            return this.defangIP(match);
-        });
-
-        // Process IPv6 addresses
-        newContent = newContent.replace(ipv6Regex, (match) => {
-            defangedCount++;
-            return this.defangIP(match);
-        });
-
-        if (defangedCount > 0) {
-            editor.setValue(newContent);
-            new Notice(`Defanged ${defangedCount} IP address(es)`);
+        if (count > 0) {
+            editor.setValue(text);
+            new Notice(`Defanged ${count} IP address(es)`);
         } else {
             new Notice('No IP addresses found to defang');
         }
@@ -654,30 +805,37 @@ export default class IPReputationPlugin extends Plugin {
             return;
         }
 
-        const ipv4Regex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-        const ipv6Regex = /\b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,7}:|\b(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}\b|\b(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}\b|\b[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})\b|\b:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)\b|\bfe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}\b|\b::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b|\b(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\b/g;
+        const { text, count } = this.defangIPsInText(selectedText);
 
-        let newText = selectedText;
-        let defangedCount = 0;
-
-        // Process IPv4 addresses
-        newText = newText.replace(ipv4Regex, (match) => {
-            defangedCount++;
-            return this.defangIP(match);
-        });
-
-        // Process IPv6 addresses
-        newText = newText.replace(ipv6Regex, (match) => {
-            defangedCount++;
-            return this.defangIP(match);
-        });
-
-        if (defangedCount > 0) {
-            editor.replaceSelection(newText);
-            new Notice(`Defanged ${defangedCount} IP address(es)`);
+        if (count > 0) {
+            editor.replaceSelection(text);
+            new Notice(`Defanged ${count} IP address(es)`);
         } else {
             new Notice('No IP addresses found to defang');
         }
+    }
+
+    /**
+     * Defang every plain IP address in text. Already-defanged addresses are left alone.
+     */
+    private defangIPsInText(text: string): { text: string; count: number } {
+        let count = 0;
+
+        // IPv6 first, so an embedded IPv4 address (::ffff:1.2.3.4) is matched as part of it
+        let newText = text.replace(new RegExp(IPV6_PLAIN_REGEX.source, 'g'), (match) => {
+            if (!isValidIPv6(match)) {
+                return match;
+            }
+            count++;
+            return this.defangIP(match);
+        });
+
+        newText = newText.replace(new RegExp(IPV4_PLAIN_REGEX.source, 'g'), (match) => {
+            count++;
+            return this.defangIP(match);
+        });
+
+        return { text: newText, count };
     }
 
     /**
@@ -690,89 +848,101 @@ export default class IPReputationPlugin extends Plugin {
             return ip.replace(/(?<!:):(?!:)/g, '[:]');
         }
         // Handle IPv4 addresses
+        if (this.settings.defangingMethod === 'last-dot') {
+            return ip.replace(/\.(?=\d+$)/, '[.]');
+        }
         return ip.replace(/\./g, '[.]');
     }
 
     /**
-     * Get reputation data for an IP address from both APIs
+     * Get reputation data for an IP address from the enabled APIs
      */
     private async getIPReputation(ip: string): Promise<IPReputationData> {
-        // Check cache first
-        const cached = this.ipCache.get(ip);
-        if (cached) {
-            const now = Date.now();
-            const cacheAge = (now - Math.max(cached.virustotal.lastChecked, cached.abuseipdb.lastChecked)) / (1000 * 60 * 60);
-            if (cacheAge < this.settings.cacheDuration) {
-                // Return a new object to avoid modifying the cached data
-                return {
-                    virustotal: { ...cached.virustotal },
-                    abuseipdb: { ...cached.abuseipdb }
-                };
-            }
+        const { virustotal: vtOutput, abuseipdb: abuseOutput } = this.settings.outputFormat;
+        if (!vtOutput.enabled && !abuseOutput.enabled) {
+            throw new Error('Both VirusTotal and AbuseIPDB are disabled in settings');
         }
 
+        // Each provider is cached separately, so enabling one later doesn't reuse empty data
+        const cached = this.ipCache.get(ip) ?? {};
+        const maxAge = this.settings.cacheDuration * 60 * 60 * 1000;
+        const isFresh = (entry?: { lastChecked: number }) => !!entry && Date.now() - entry.lastChecked < maxAge;
+
         try {
-            const [vtData, abuseData] = await Promise.all([
-                this.checkVirusTotal(ip),
-                this.checkAbuseIPDB(ip)
+            const [virustotal, abuseipdb] = await Promise.all([
+                !vtOutput.enabled ? undefined
+                    : isFresh(cached.virustotal) ? cached.virustotal
+                    : this.checkVirusTotal(ip).then(data => this.parseVirusTotal(data)),
+                !abuseOutput.enabled ? undefined
+                    : isFresh(cached.abuseipdb) ? cached.abuseipdb
+                    : this.checkAbuseIPDB(ip).then(data => this.parseAbuseIPDB(data))
             ]);
 
-            // Extract data with fallbacks
-            const vtStats = vtData?.data?.attributes?.last_analysis_stats || {};
-            const vtResults = vtData?.data?.attributes?.last_analysis_results || {};
-            const vtAttributes = vtData?.data?.attributes || {};
-            const abuseDataObj = abuseData?.data || {};
-
-            const reputation: IPReputationData = {
-                virustotal: {
-                    maliciousCount: vtStats.malicious || 0,
-                    totalVendors: Object.keys(vtResults).length,
-                    lastChecked: Date.now(),
-                    harmlessCount: vtStats.harmless || 0,
-                    suspiciousCount: vtStats.suspicious || 0,
-                    timeoutCount: vtStats.timeout || 0,
-                    undetectedCount: vtStats.undetected || 0,
-                    lastAnalysisDate: vtAttributes.last_analysis_date || '',
-                    country: vtAttributes.country || '',
-                    asOwner: vtAttributes.as_owner || '',
-                    asn: vtAttributes.asn || '',
-                    network: vtAttributes.network || '',
-                    tags: vtAttributes.tags || []
-                },
-                abuseipdb: {
-                    confidenceScore: abuseDataObj.abuseConfidenceScore || 0,
-                    lastReported: abuseDataObj.lastReportedAt || new Date().toISOString(),
-                    lastChecked: Date.now(),
-                    totalReports: abuseDataObj.totalReports || 0,
-                    numDistinctUsers: abuseDataObj.numDistinctUsers || 0,
-                    lastReportedAt: abuseDataObj.lastReportedAt || '',
-                    isPublic: abuseDataObj.isPublic || false,
-                    isWhitelisted: abuseDataObj.isWhitelisted || false,
-                    countryCode: abuseDataObj.countryCode || '',
-                    countryName: abuseDataObj.countryCode ? (COUNTRY_CODES[abuseDataObj.countryCode] || abuseDataObj.countryCode) : '',
-                    usageType: abuseDataObj.usageType || '',
-                    domain: abuseDataObj.domain || '',
-                    hostnames: abuseDataObj.hostnames || []
-                }
-            };
-
-            // Store a copy of the data in cache
             this.ipCache.set(ip, {
-                virustotal: { ...reputation.virustotal },
-                abuseipdb: { ...reputation.abuseipdb }
+                virustotal: virustotal ?? cached.virustotal,
+                abuseipdb: abuseipdb ?? cached.abuseipdb
             });
-            return reputation;
+
+            // Return copies to avoid modifying the cached data
+            return {
+                virustotal: { ...(virustotal ?? emptyVirusTotalReputation()) },
+                abuseipdb: { ...(abuseipdb ?? emptyAbuseIPDBReputation()) }
+            };
         } catch (error) {
             console.error(`Error getting reputation for IP ${ip}:`, error);
             throw new Error(`Failed to get reputation data: ${error.message}`);
         }
     }
 
+    private parseVirusTotal(vtData: any): VirusTotalReputation {
+        // Extract data with fallbacks
+        const vtStats = vtData?.data?.attributes?.last_analysis_stats || {};
+        const vtResults = vtData?.data?.attributes?.last_analysis_results || {};
+        const vtAttributes = vtData?.data?.attributes || {};
+
+        return {
+            maliciousCount: vtStats.malicious || 0,
+            totalVendors: Object.keys(vtResults).length,
+            lastChecked: Date.now(),
+            harmlessCount: vtStats.harmless || 0,
+            suspiciousCount: vtStats.suspicious || 0,
+            timeoutCount: vtStats.timeout || 0,
+            undetectedCount: vtStats.undetected || 0,
+            lastAnalysisDate: vtAttributes.last_analysis_date || '',
+            country: vtAttributes.country || '',
+            asOwner: vtAttributes.as_owner || '',
+            asn: vtAttributes.asn || '',
+            network: vtAttributes.network || '',
+            tags: vtAttributes.tags || []
+        };
+    }
+
+    private parseAbuseIPDB(abuseData: any): AbuseIPDBReputation {
+        const abuseDataObj = abuseData?.data || {};
+
+        return {
+            confidenceScore: abuseDataObj.abuseConfidenceScore || 0,
+            lastReported: abuseDataObj.lastReportedAt || new Date().toISOString(),
+            lastChecked: Date.now(),
+            totalReports: abuseDataObj.totalReports || 0,
+            numDistinctUsers: abuseDataObj.numDistinctUsers || 0,
+            lastReportedAt: abuseDataObj.lastReportedAt || '',
+            isPublic: abuseDataObj.isPublic || false,
+            isWhitelisted: abuseDataObj.isWhitelisted || false,
+            countryCode: abuseDataObj.countryCode || '',
+            countryName: abuseDataObj.countryCode ? (COUNTRY_CODES[abuseDataObj.countryCode] || abuseDataObj.countryCode) : '',
+            usageType: abuseDataObj.usageType || '',
+            domain: abuseDataObj.domain || '',
+            hostnames: abuseDataObj.hostnames || []
+        };
+    }
+
     /**
      * Check IP reputation using VirusTotal API
      */
     private async checkVirusTotal(ip: string) {
-        if (!this.settings.virustotalApiKey) {
+        const apiKey = this.getApiKey('virustotal');
+        if (!apiKey) {
             throw new Error('VirusTotal API key not configured');
         }
 
@@ -781,7 +951,7 @@ export default class IPReputationPlugin extends Plugin {
                 url: `https://www.virustotal.com/api/v3/ip_addresses/${ip}`,
                 method: 'GET',
                 headers: {
-                    'x-apikey': this.settings.virustotalApiKey,
+                    'x-apikey': apiKey,
                     'Accept': 'application/json'
                 }
             });
@@ -805,7 +975,8 @@ export default class IPReputationPlugin extends Plugin {
      * Check IP reputation using AbuseIPDB API
      */
     private async checkAbuseIPDB(ip: string) {
-        if (!this.settings.abuseipdbApiKey) {
+        const apiKey = this.getApiKey('abuseipdb');
+        if (!apiKey) {
             throw new Error('AbuseIPDB API key not configured');
         }
 
@@ -814,7 +985,7 @@ export default class IPReputationPlugin extends Plugin {
                 url: `https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90`,
                 method: 'GET',
                 headers: {
-                    'Key': this.settings.abuseipdbApiKey,
+                    'Key': apiKey,
                     'Accept': 'application/json'
                 }
             });
@@ -874,13 +1045,7 @@ export default class IPReputationPlugin extends Plugin {
      * Update the note with reputation data for an IP address
      */
     private updateNoteWithReputation(editor: Editor, ip: string, reputation: IPReputationData) {
-        console.log('Reputation data:', reputation);
-
         const content = editor.getValue();
-        // Create both fully defanged and last-dot-defanged versions of the IP
-        const fullyDefangedIP = ip.replace(/\./g, '[.]');
-        const lastDotDefangedIP = ip.replace(/\.(?=[^.]*$)/, '[.]');
-        const plainIP = ip;
 
         // Split content into lines and process each line
         const lines = content.split('\n');
@@ -890,8 +1055,8 @@ export default class IPReputationPlugin extends Plugin {
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
-            // Check if this line contains any version of our IP
-            if (line.includes(plainIP) || line.includes(fullyDefangedIP) || line.includes(lastDotDefangedIP)) {
+            // Check if this line contains our IP (plain or defanged), matching whole addresses only
+            if (findIPs(line).includes(ip)) {
                 foundIP = true;
 
                 // Check if the next line already has an annotation
@@ -932,14 +1097,17 @@ export default class IPReputationPlugin extends Plugin {
             }
         };
 
+        const vtApiKey = this.getApiKey('virustotal');
+        const abuseApiKey = this.getApiKey('abuseipdb');
+
         // Test VirusTotal API
-        if (this.settings.virustotalApiKey) {
+        if (vtApiKey) {
             try {
                 const response = await request({
                     url: 'https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8',
                     method: 'GET',
                     headers: {
-                        'x-apikey': this.settings.virustotalApiKey,
+                        'x-apikey': vtApiKey,
                         'Accept': 'application/json'
                     }
                 });
@@ -972,13 +1140,13 @@ export default class IPReputationPlugin extends Plugin {
         }
 
         // Test AbuseIPDB API
-        if (this.settings.abuseipdbApiKey) {
+        if (abuseApiKey) {
             try {
                 const response = await request({
                     url: 'https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=90',
                     method: 'GET',
                     headers: {
-                        'Key': this.settings.abuseipdbApiKey,
+                        'Key': abuseApiKey,
                         'Accept': 'application/json'
                     }
                 });
@@ -1012,6 +1180,7 @@ export default class IPReputationPlugin extends Plugin {
  */
 class IPSettingTab extends PluginSettingTab {
     plugin: IPReputationPlugin;
+    private previewEl: HTMLElement | null = null;
 
     constructor(app: App, plugin: IPReputationPlugin) {
         super(app, plugin);
@@ -1021,199 +1190,134 @@ class IPSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.addClass('soc-toolkit-plugin');
+        containerEl.addClass('soc-toolkit-settings');
 
-        // Cache Duration setting
-        new Setting(containerEl)
-            .setName('Cache duration')
-            .setDesc('How long to cache results (in hours)')
-            .addText(text => text
-                .setPlaceholder('24')
-                .setValue(this.plugin.settings.cacheDuration.toString())
-                .onChange(async (value) => {
-                    const num = parseInt(value);
-                    if (!isNaN(num) && num > 0) {
-                        this.plugin.settings.cacheDuration = num;
+        new SettingGroup(containerEl)
+            .addSetting(setting => setting
+                .setName('Cache duration')
+                .setDesc('How long to cache results (in hours)')
+                .addText(text => text
+                    .setPlaceholder('24')
+                    .setValue(this.plugin.settings.cacheDuration.toString())
+                    .onChange(async (value) => {
+                        const num = parseInt(value);
+                        if (!isNaN(num) && num > 0) {
+                            this.plugin.settings.cacheDuration = num;
+                            await this.plugin.saveSettings();
+                        }
+                    })))
+            .addSetting(setting => setting
+                .setName('Defanging method')
+                .setDesc('Choose how IPv4 addresses should be defanged')
+                .addDropdown(dropdown => dropdown
+                    .addOption('all-dots', 'Replace all dots (1[.]2[.]3[.]4)')
+                    .addOption('last-dot', 'Replace last dot (1.2.3[.]4)')
+                    .setValue(this.plugin.settings.defangingMethod)
+                    .onChange(async (value) => {
+                        this.plugin.settings.defangingMethod = value as 'all-dots' | 'last-dot';
                         await this.plugin.saveSettings();
-                    }
-                }));
+                    })));
 
-        // Defanging Method setting
-        new Setting(containerEl)
-            .setName('Defanging method')
-            .setDesc('Choose how IP addresses should be defanged')
-            .addDropdown(dropdown => dropdown
-                .addOption('all-dots', 'Replace all dots with square brackets')
-                .addOption('last-dot', 'Replace last dot with square bracket')
-                .setValue(this.plugin.settings.defangingMethod)
-                .onChange(async (value) => {
-                    this.plugin.settings.defangingMethod = value as 'all-dots' | 'last-dot';
-                    await this.plugin.saveSettings();
-                }));
+        new SettingGroup(containerEl)
+            .setHeading('API keys')
+            .addSetting(setting => setting
+                .setName('VirusTotal API key')
+                .setDesc('Choose or create the secret that holds your VirusTotal API key')
+                .addComponent(el => new SecretComponent(this.app, el)
+                    .setValue(this.plugin.settings.virustotalSecret)
+                    .onChange(async (value) => {
+                        this.plugin.settings.virustotalSecret = value ?? '';
+                        await this.plugin.saveSettings();
+                    })))
+            .addSetting(setting => setting
+                .setName('AbuseIPDB API key')
+                .setDesc('Choose or create the secret that holds your AbuseIPDB API key')
+                .addComponent(el => new SecretComponent(this.app, el)
+                    .setValue(this.plugin.settings.abuseipdbSecret)
+                    .onChange(async (value) => {
+                        this.plugin.settings.abuseipdbSecret = value ?? '';
+                        await this.plugin.saveSettings();
+                    })))
+            .addSetting(setting => setting
+                .setName('Test API keys')
+                .setDesc('Verify that your API keys are working correctly')
+                .addButton(button => button
+                    .setButtonText('Test keys')
+                    .onClick(async () => {
+                        const results = await this.plugin.testApiKeys();
 
-        // Section heading: API keys
-        new Setting(containerEl)
-            .setName('API')
-            .setHeading();
+                        let message = '';
 
-        // VirusTotal API Key setting
-        const vtKeySetting = new Setting(containerEl)
-            .setName('VirusTotal API key')
-            .setDesc('Enter your VirusTotal API key');
-        vtKeySetting.controlEl.addClass('api-key-input');
-        vtKeySetting.addText(text => text
-            .setPlaceholder('Enter your API key')
-            .setValue(this.plugin.settings.virustotalApiKey)
-            .onChange(async (value) => {
-                this.plugin.settings.virustotalApiKey = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
+                        // VirusTotal status
+                        message += results.virustotal
+                            ? '✅ VirusTotal API key is working\n'
+                            : `❌ VirusTotal API key is not working\n${results.errors.virustotal}\n\n`;
 
-        // AbuseIPDB API Key setting
-        const abuseKeySetting = new Setting(containerEl)
-            .setName('AbuseIPDB API key')
-            .setDesc('Enter your AbuseIPDB API key');
-        abuseKeySetting.controlEl.addClass('api-key-input');
-        abuseKeySetting.addText(text => text
-            .setPlaceholder('Enter your API key')
-            .setValue(this.plugin.settings.abuseipdbApiKey)
-            .onChange(async (value) => {
-                this.plugin.settings.abuseipdbApiKey = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
+                        // AbuseIPDB status
+                        message += results.abuseipdb
+                            ? '✅ AbuseIPDB API key is working'
+                            : `❌ AbuseIPDB API key is not working\n${results.errors.abuseipdb}`;
 
-        // Test API Keys button
-        new Setting(containerEl)
-            .setName('Test API keys')
-            .setDesc('Verify that your API keys are working correctly')
-            .addButton(button => button
-                .setButtonText('Test keys')
-                .onClick(async () => {
-                    const results = await this.plugin.testApiKeys();
+                        new Notice(message);
+                    })));
 
-                    let message = '';
-
-                    // VirusTotal status
-                    message += results.virustotal
-                        ? '✅ VirusTotal API key is working\n'
-                        : `❌ VirusTotal API key is not working\n${results.errors.virustotal}\n\n`;
-
-                    // AbuseIPDB status
-                    message += results.abuseipdb
-                        ? '✅ AbuseIPDB API key is working'
-                        : `❌ AbuseIPDB API key is not working\n${results.errors.abuseipdb}`;
-
-                    new Notice(message);
-                }));
-
-        // Section heading: Output
-        new Setting(containerEl)
-            .setName('Output')
-            .setHeading();
-
-        const exampleContainer = containerEl.createDiv('example-container');
-        const exampleContent = exampleContainer.createDiv('example-content');
+        new SettingGroup(containerEl)
+            .setHeading('Output')
+            .addSetting(setting => {
+                setting
+                    .setName('Preview')
+                    .setDesc('How annotations will appear under an IP in your notes');
+                setting.settingEl.addClass('soc-toolkit-wide');
+                this.previewEl = setting.settingEl.createEl('pre', { cls: 'soc-toolkit-preview' });
+            });
         this.updateExampleOutput();
 
-        // VirusTotal Output Format
-        const vtSetting = new Setting(containerEl)
-            .setName('Enable VirusTotal');
-        vtSetting.controlEl.addClass('toggle-switch');
-        vtSetting.addToggle(toggle => toggle
-            .setValue(this.plugin.settings.outputFormat.virustotal.enabled)
-            .onChange(async (value) => {
-                this.plugin.settings.outputFormat.virustotal.enabled = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
+        this.addProviderGroup(containerEl, 'VirusTotal', 'virustotal', VIRUSTOTAL_FIELDS);
+        this.addProviderGroup(containerEl, 'AbuseIPDB', 'abuseipdb', ABUSEIPDB_FIELDS);
+    }
 
-        // Add VirusTotal format input as a new setting
-        const vtFormatSetting = new Setting(containerEl)
-            .setName('Customise output')
-            .setDesc('Customise the VirusTotal output using the available fields below');
-        vtFormatSetting.controlEl.addClass('format-input-container');
-        vtFormatSetting.addText(text => text
-            .setValue(this.plugin.settings.outputFormat.virustotal.format)
-            .onChange(async (value) => {
-                this.plugin.settings.outputFormat.virustotal.format = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
+    /**
+     * Add the enable toggle and output format settings for one reputation provider
+     */
+    private addProviderGroup(
+        containerEl: HTMLElement,
+        title: string,
+        provider: Provider,
+        fields: { name: string; desc: string }[]
+    ) {
+        const output = this.plugin.settings.outputFormat[provider];
 
-        // Add VirusTotal field tags
-        const vtFieldTags = containerEl.createDiv('field-tags');
-        const vtFields = [
-            { name: '{maliciousCount}', desc: 'Number of vendors that flagged the IP as malicious' },
-            { name: '{totalVendors}', desc: 'Total number of vendors that analyzed the IP' },
-            { name: '{harmlessCount}', desc: 'Number of vendors that flagged the IP as harmless' },
-            { name: '{suspiciousCount}', desc: 'Number of vendors that flagged the IP as suspicious' },
-            { name: '{timeoutCount}', desc: 'Number of vendors that timed out while analyzing' },
-            { name: '{undetectedCount}', desc: 'Number of vendors that didn\'t detect anything' },
-            { name: '{lastAnalysisDate}', desc: 'Date of the last analysis' },
-            { name: '{country}', desc: 'Country where the IP is located' },
-            { name: '{asOwner}', desc: 'Autonomous System owner' },
-            { name: '{asn}', desc: 'Autonomous System Number' },
-            { name: '{network}', desc: 'Network/CIDR block' },
-            { name: '{tags}', desc: 'List of tags associated with the IP' }
-        ];
-        vtFields.forEach(field => {
-            const tag = vtFieldTags.createEl('span', {
-                text: field.name,
-                cls: 'field-tag',
-                attr: { 'data-description': field.desc }
+        new SettingGroup(containerEl)
+            .setHeading(title)
+            .addSetting(setting => setting
+                .setName(`Enable ${title}`)
+                .setDesc(`Look up IPs in ${title} and include the result in annotations`)
+                .addToggle(toggle => toggle
+                    .setValue(output.enabled)
+                    .onChange(async (value) => {
+                        output.enabled = value;
+                        await this.plugin.saveSettings();
+                        this.updateExampleOutput();
+                    })))
+            .addSetting(setting => {
+                setting
+                    .setName('Output format')
+                    .setDesc('Hover over a field below to see what it contains')
+                    .addText(text => text
+                        .setValue(output.format)
+                        .onChange(async (value) => {
+                            output.format = value;
+                            await this.plugin.saveSettings();
+                            this.updateExampleOutput();
+                        }));
+                setting.settingEl.addClass('soc-toolkit-wide');
+
+                const fieldTags = setting.settingEl.createDiv('soc-toolkit-field-tags');
+                fields.forEach(field => {
+                    const tag = fieldTags.createSpan({ text: field.name, cls: 'soc-toolkit-field-tag' });
+                    setTooltip(tag, field.desc);
+                });
             });
-        });
-
-        // AbuseIPDB Output Format
-        const abuseSetting = new Setting(containerEl)
-            .setName('Enable AbuseIPDB');
-        abuseSetting.controlEl.addClass('toggle-switch');
-        abuseSetting.addToggle(toggle => toggle
-            .setValue(this.plugin.settings.outputFormat.abuseipdb.enabled)
-            .onChange(async (value) => {
-                this.plugin.settings.outputFormat.abuseipdb.enabled = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
-
-        // Add AbuseIPDB format input as a new setting
-        const abuseFormatSetting = new Setting(containerEl)
-            .setName('Customise output')
-            .setDesc('Customise the AbuseIPDB output using the available fields below');
-        abuseFormatSetting.controlEl.addClass('format-input-container');
-        abuseFormatSetting.addText(text => text
-            .setValue(this.plugin.settings.outputFormat.abuseipdb.format)
-            .onChange(async (value) => {
-                this.plugin.settings.outputFormat.abuseipdb.format = value;
-                await this.plugin.saveSettings();
-                this.updateExampleOutput();
-            }));
-
-        // Add AbuseIPDB field tags
-        const abuseFieldTags = containerEl.createDiv('field-tags');
-        const abuseFields = [
-            { name: '{confidenceScore}', desc: 'Confidence score of abuse (0-100)' },
-            { name: '{lastReported}', desc: 'Time since the IP was last reported' },
-            { name: '{totalReports}', desc: 'Total number of reports for this IP' },
-            { name: '{numDistinctUsers}', desc: 'Number of distinct users who reported this IP' },
-            { name: '{lastReportedAt}', desc: 'Raw timestamp of the last report' },
-            { name: '{isPublic}', desc: 'Whether the IP is public' },
-            { name: '{isWhitelisted}', desc: 'Whether the IP is whitelisted' },
-            { name: '{countryCode}', desc: 'Two-letter country code' },
-            { name: '{countryName}', desc: 'Full country name' },
-            { name: '{usageType}', desc: 'Type of usage (e.g., "Data Center", "ISP")' },
-            { name: '{domain}', desc: 'Associated domain name' },
-            { name: '{hostnames}', desc: 'List of associated hostnames' }
-        ];
-        abuseFields.forEach(field => {
-            const tag = abuseFieldTags.createEl('span', {
-                text: field.name,
-                cls: 'field-tag',
-                attr: { 'data-description': field.desc }
-            });
-        });
     }
 
     private getExampleOutput(): string {
@@ -1250,59 +1354,10 @@ class IPSettingTab extends PluginSettingTab {
             }
         };
 
-        let output = '8.8.8.8\n';
-
-        if (this.plugin.settings.outputFormat.virustotal.enabled) {
-            const vtFormat = this.plugin.settings.outputFormat.virustotal.format;
-            const vtOutput = vtFormat
-                .replace('{maliciousCount}', exampleData.virustotal.maliciousCount.toString())
-                .replace('{totalVendors}', exampleData.virustotal.totalVendors.toString())
-                .replace('{harmlessCount}', exampleData.virustotal.harmlessCount.toString())
-                .replace('{suspiciousCount}', exampleData.virustotal.suspiciousCount.toString())
-                .replace('{timeoutCount}', exampleData.virustotal.timeoutCount.toString())
-                .replace('{undetectedCount}', exampleData.virustotal.undetectedCount.toString())
-                .replace('{lastAnalysisDate}', exampleData.virustotal.lastAnalysisDate)
-                .replace('{country}', exampleData.virustotal.country)
-                .replace('{asOwner}', exampleData.virustotal.asOwner)
-                .replace('{asn}', exampleData.virustotal.asn)
-                .replace('{network}', exampleData.virustotal.network)
-                .replace('{tags}', exampleData.virustotal.tags.join(', '));
-            output += `  - VirusTotal: ${vtOutput}\n`;
-        }
-
-        if (this.plugin.settings.outputFormat.abuseipdb.enabled) {
-            const abuseFormat = this.plugin.settings.outputFormat.abuseipdb.format;
-            let abuseOutput = abuseFormat
-                .replace('{confidenceScore}', exampleData.abuseipdb.confidenceScore.toString())
-                .replace('{totalReports}', exampleData.abuseipdb.totalReports.toString())
-                .replace('{numDistinctUsers}', exampleData.abuseipdb.numDistinctUsers.toString())
-                .replace('{lastReportedAt}', exampleData.abuseipdb.lastReportedAt)
-                .replace('{isPublic}', exampleData.abuseipdb.isPublic.toString())
-                .replace('{isWhitelisted}', exampleData.abuseipdb.isWhitelisted.toString())
-                .replace('{countryCode}', exampleData.abuseipdb.countryCode)
-                .replace('{countryName}', exampleData.abuseipdb.countryName)
-                .replace('{usageType}', exampleData.abuseipdb.usageType)
-                .replace('{domain}', exampleData.abuseipdb.domain)
-                .replace('{hostnames}', exampleData.abuseipdb.hostnames.join(', '));
-
-            // Only include lastReported if there are reports
-            if (exampleData.abuseipdb.totalReports > 0) {
-                abuseOutput = abuseOutput.replace('{lastReported}', this.plugin.getTimeAgo(exampleData.abuseipdb.lastReported));
-            } else {
-                // Remove the entire "last reported X" phrase when there are no reports
-                abuseOutput = abuseOutput.replace(/,?\s*last reported \{lastReported\}/, '');
-            }
-
-            output += `  - AbuseIPDB: ${abuseOutput}`;
-        }
-
-        return output;
+        return '8.8.8.8' + this.plugin.generateAnnotation(exampleData, '  ');
     }
 
     private updateExampleOutput() {
-        const exampleContent = this.containerEl.querySelector('.example-content');
-        if (exampleContent) {
-            exampleContent.setText(this.getExampleOutput());
-        }
+        this.previewEl?.setText(this.getExampleOutput());
     }
 }
