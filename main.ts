@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, SettingGroup, request, Menu, MenuItem, setTooltip } from 'obsidian';
+import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, SecretComponent, SettingGroup, request, Menu, MenuItem, setTooltip } from 'obsidian';
 
 /**
  * Interface for storing IP reputation data from both VirusTotal and AbuseIPDB
@@ -397,9 +397,15 @@ const ABUSEIPDB_FIELDS = [
 /**
  * Plugin settings interface
  */
+type Provider = 'virustotal' | 'abuseipdb';
+
 interface IPSettings {
-    virustotalApiKey: string;
-    abuseipdbApiKey: string;
+    // Names of secrets in Obsidian's secret storage, not the API keys themselves
+    virustotalSecret: string;
+    abuseipdbSecret: string;
+    // Plaintext keys saved by older versions, moved into secret storage on load
+    virustotalApiKey?: string;
+    abuseipdbApiKey?: string;
     cacheDuration: number; // in hours
     defangingMethod: 'all-dots' | 'last-dot'; // new setting
     outputFormat: {
@@ -420,8 +426,8 @@ interface IPSettings {
  * Default plugin settings
  */
 const DEFAULT_SETTINGS: IPSettings = {
-    virustotalApiKey: '',
-    abuseipdbApiKey: '',
+    virustotalSecret: '',
+    abuseipdbSecret: '',
     cacheDuration: 24,
     defangingMethod: 'all-dots', // default to replacing all dots
     outputFormat: {
@@ -549,6 +555,62 @@ export default class IPReputationPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        await this.migrateApiKeys();
+    }
+
+    /**
+     * Move plaintext API keys saved by older versions into Obsidian's secret storage
+     */
+    private async migrateApiKeys() {
+        let migrated = false;
+
+        for (const provider of ['virustotal', 'abuseipdb'] as const) {
+            const legacyKey = provider === 'virustotal' ? this.settings.virustotalApiKey : this.settings.abuseipdbApiKey;
+            if (legacyKey === undefined) {
+                continue;
+            }
+
+            if (legacyKey) {
+                const secretId = `soc-toolkit-${provider}-api-key`;
+                const existing = this.app.secretStorage.getSecret(secretId);
+                if (existing !== null && existing !== legacyKey) {
+                    // Don't overwrite a different secret; keep using the legacy key until the user picks one
+                    console.warn(`SOC Toolkit: secret "${secretId}" already exists, leaving ${provider} API key unmigrated`);
+                    continue;
+                }
+                try {
+                    this.app.secretStorage.setSecret(secretId, legacyKey);
+                } catch (error) {
+                    console.error(`SOC Toolkit: failed to move ${provider} API key into secret storage`, error);
+                    continue;
+                }
+                if (provider === 'virustotal') {
+                    this.settings.virustotalSecret = secretId;
+                } else {
+                    this.settings.abuseipdbSecret = secretId;
+                }
+            }
+
+            if (provider === 'virustotal') {
+                delete this.settings.virustotalApiKey;
+            } else {
+                delete this.settings.abuseipdbApiKey;
+            }
+            migrated = true;
+        }
+
+        if (migrated) {
+            await this.saveSettings();
+        }
+    }
+
+    /**
+     * Get a provider's API key from secret storage (or an unmigrated legacy key)
+     */
+    private getApiKey(provider: Provider): string {
+        const secretId = provider === 'virustotal' ? this.settings.virustotalSecret : this.settings.abuseipdbSecret;
+        const legacyKey = provider === 'virustotal' ? this.settings.virustotalApiKey : this.settings.abuseipdbApiKey;
+        return (secretId && this.app.secretStorage.getSecret(secretId)) || legacyKey || '';
     }
 
     async saveSettings() {
@@ -879,7 +941,8 @@ export default class IPReputationPlugin extends Plugin {
      * Check IP reputation using VirusTotal API
      */
     private async checkVirusTotal(ip: string) {
-        if (!this.settings.virustotalApiKey) {
+        const apiKey = this.getApiKey('virustotal');
+        if (!apiKey) {
             throw new Error('VirusTotal API key not configured');
         }
 
@@ -888,7 +951,7 @@ export default class IPReputationPlugin extends Plugin {
                 url: `https://www.virustotal.com/api/v3/ip_addresses/${ip}`,
                 method: 'GET',
                 headers: {
-                    'x-apikey': this.settings.virustotalApiKey,
+                    'x-apikey': apiKey,
                     'Accept': 'application/json'
                 }
             });
@@ -912,7 +975,8 @@ export default class IPReputationPlugin extends Plugin {
      * Check IP reputation using AbuseIPDB API
      */
     private async checkAbuseIPDB(ip: string) {
-        if (!this.settings.abuseipdbApiKey) {
+        const apiKey = this.getApiKey('abuseipdb');
+        if (!apiKey) {
             throw new Error('AbuseIPDB API key not configured');
         }
 
@@ -921,7 +985,7 @@ export default class IPReputationPlugin extends Plugin {
                 url: `https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90`,
                 method: 'GET',
                 headers: {
-                    'Key': this.settings.abuseipdbApiKey,
+                    'Key': apiKey,
                     'Accept': 'application/json'
                 }
             });
@@ -1033,14 +1097,17 @@ export default class IPReputationPlugin extends Plugin {
             }
         };
 
+        const vtApiKey = this.getApiKey('virustotal');
+        const abuseApiKey = this.getApiKey('abuseipdb');
+
         // Test VirusTotal API
-        if (this.settings.virustotalApiKey) {
+        if (vtApiKey) {
             try {
                 const response = await request({
                     url: 'https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8',
                     method: 'GET',
                     headers: {
-                        'x-apikey': this.settings.virustotalApiKey,
+                        'x-apikey': vtApiKey,
                         'Accept': 'application/json'
                     }
                 });
@@ -1073,13 +1140,13 @@ export default class IPReputationPlugin extends Plugin {
         }
 
         // Test AbuseIPDB API
-        if (this.settings.abuseipdbApiKey) {
+        if (abuseApiKey) {
             try {
                 const response = await request({
                     url: 'https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=90',
                     method: 'GET',
                     headers: {
-                        'Key': this.settings.abuseipdbApiKey,
+                        'Key': abuseApiKey,
                         'Accept': 'application/json'
                     }
                 });
@@ -1155,22 +1222,20 @@ class IPSettingTab extends PluginSettingTab {
             .setHeading('API keys')
             .addSetting(setting => setting
                 .setName('VirusTotal API key')
-                .setDesc('Enter your VirusTotal API key')
-                .addText(text => text
-                    .setPlaceholder('Enter your API key')
-                    .setValue(this.plugin.settings.virustotalApiKey)
+                .setDesc('Choose or create the secret that holds your VirusTotal API key')
+                .addComponent(el => new SecretComponent(this.app, el)
+                    .setValue(this.plugin.settings.virustotalSecret)
                     .onChange(async (value) => {
-                        this.plugin.settings.virustotalApiKey = value;
+                        this.plugin.settings.virustotalSecret = value ?? '';
                         await this.plugin.saveSettings();
                     })))
             .addSetting(setting => setting
                 .setName('AbuseIPDB API key')
-                .setDesc('Enter your AbuseIPDB API key')
-                .addText(text => text
-                    .setPlaceholder('Enter your API key')
-                    .setValue(this.plugin.settings.abuseipdbApiKey)
+                .setDesc('Choose or create the secret that holds your AbuseIPDB API key')
+                .addComponent(el => new SecretComponent(this.app, el)
+                    .setValue(this.plugin.settings.abuseipdbSecret)
                     .onChange(async (value) => {
-                        this.plugin.settings.abuseipdbApiKey = value;
+                        this.plugin.settings.abuseipdbSecret = value ?? '';
                         await this.plugin.saveSettings();
                     })))
             .addSetting(setting => setting
@@ -1217,7 +1282,7 @@ class IPSettingTab extends PluginSettingTab {
     private addProviderGroup(
         containerEl: HTMLElement,
         title: string,
-        provider: 'virustotal' | 'abuseipdb',
+        provider: Provider,
         fields: { name: string; desc: string }[]
     ) {
         const output = this.plugin.settings.outputFormat[provider];

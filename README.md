@@ -38,7 +38,7 @@ Before you will be able to run IP reputation checks, you need to first configure
 2. Get an AbuseIPDB API key from [AbuseIPDB](https://www.abuseipdb.com/account/api)
 3. Open Obsidian settings
 4. Go to Community Plugins > SOC Toolkit
-5. Enter your API keys
+5. For each API key, choose an existing secret or create a new one and paste your key into it (keys are kept in Obsidian's secret storage, not in the plugin's settings file)
 6. Click "Test keys" to ensure both API keys are valid and working
 7. (Recommended) Set your desired keybindings in Obsidian Hotkeys settings
 8. (Optional) Adjust the cache duration (default: 24 hours)
@@ -88,7 +88,7 @@ IPs involved in incident:
 
 This plugin:
 - Sends IP addresses to VirusTotal and AbuseIPDB for reputation checking
-- Stores API keys locally in your Obsidian settings
+- Stores API keys in Obsidian's secret storage (requires Obsidian 1.11.4 or later); keys saved by older versions are moved there automatically
 - Caches results locally to minimise API calls
 
 ## Roadmap
