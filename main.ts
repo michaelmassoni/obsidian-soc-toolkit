@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Notice, Plugin, PluginSettingTab, SecretComponent, SettingGroup, request, Menu, MenuItem, setTooltip } from 'obsidian';
+import { App, Editor, EditorChange, MarkdownFileInfo, MarkdownView, Notice, Plugin, PluginSettingTab, SecretComponent, SettingGroup, requestUrl, Menu, MenuItem, setTooltip } from 'obsidian';
 
 /**
  * Interface for storing IP reputation data from both VirusTotal and AbuseIPDB
@@ -14,6 +14,7 @@ interface IPReputationData {
         undetectedCount: number;
         lastAnalysisDate: string;
         country: string;
+        countryCode: string;
         asOwner: string;
         asn: string;
         network: string;
@@ -36,205 +37,22 @@ interface IPReputationData {
     };
 }
 
+let regionNames: Intl.DisplayNames | null = null;
+
 /**
- * Country code to name mapping
+ * Get a country's English name from its two-letter code, falling back to the code itself
  */
-const COUNTRY_CODES: { [key: string]: string } = {
-    'AF': 'Afghanistan',
-    'AL': 'Albania',
-    'DZ': 'Algeria',
-    'AD': 'Andorra',
-    'AO': 'Angola',
-    'AG': 'Antigua and Barbuda',
-    'AR': 'Argentina',
-    'AM': 'Armenia',
-    'AU': 'Australia',
-    'AT': 'Austria',
-    'AZ': 'Azerbaijan',
-    'BS': 'Bahamas',
-    'BH': 'Bahrain',
-    'BD': 'Bangladesh',
-    'BB': 'Barbados',
-    'BY': 'Belarus',
-    'BE': 'Belgium',
-    'BZ': 'Belize',
-    'BJ': 'Benin',
-    'BT': 'Bhutan',
-    'BO': 'Bolivia',
-    'BA': 'Bosnia and Herzegovina',
-    'BW': 'Botswana',
-    'BR': 'Brazil',
-    'BN': 'Brunei',
-    'BG': 'Bulgaria',
-    'BF': 'Burkina Faso',
-    'BI': 'Burundi',
-    'KH': 'Cambodia',
-    'CM': 'Cameroon',
-    'CA': 'Canada',
-    'CV': 'Cape Verde',
-    'CF': 'Central African Republic',
-    'TD': 'Chad',
-    'CL': 'Chile',
-    'CN': 'China',
-    'CO': 'Colombia',
-    'KM': 'Comoros',
-    'CG': 'Congo',
-    'CR': 'Costa Rica',
-    'HR': 'Croatia',
-    'CU': 'Cuba',
-    'CY': 'Cyprus',
-    'CZ': 'Czech Republic',
-    'DK': 'Denmark',
-    'DJ': 'Djibouti',
-    'DM': 'Dominica',
-    'DO': 'Dominican Republic',
-    'EC': 'Ecuador',
-    'EG': 'Egypt',
-    'SV': 'El Salvador',
-    'GQ': 'Equatorial Guinea',
-    'ER': 'Eritrea',
-    'EE': 'Estonia',
-    'ET': 'Ethiopia',
-    'FJ': 'Fiji',
-    'FI': 'Finland',
-    'FR': 'France',
-    'GA': 'Gabon',
-    'GM': 'Gambia',
-    'GE': 'Georgia',
-    'DE': 'Germany',
-    'GH': 'Ghana',
-    'GR': 'Greece',
-    'GD': 'Grenada',
-    'GT': 'Guatemala',
-    'GN': 'Guinea',
-    'GW': 'Guinea-Bissau',
-    'GY': 'Guyana',
-    'HK': 'Hong Kong',
-    'HT': 'Haiti',
-    'HN': 'Honduras',
-    'HU': 'Hungary',
-    'IS': 'Iceland',
-    'IN': 'India',
-    'ID': 'Indonesia',
-    'IR': 'Iran',
-    'IQ': 'Iraq',
-    'IE': 'Ireland',
-    'IL': 'Israel',
-    'IT': 'Italy',
-    'JM': 'Jamaica',
-    'JP': 'Japan',
-    'JO': 'Jordan',
-    'KZ': 'Kazakhstan',
-    'KE': 'Kenya',
-    'KI': 'Kiribati',
-    'KP': 'North Korea',
-    'KR': 'South Korea',
-    'KW': 'Kuwait',
-    'KG': 'Kyrgyzstan',
-    'LA': 'Laos',
-    'LV': 'Latvia',
-    'LB': 'Lebanon',
-    'LS': 'Lesotho',
-    'LR': 'Liberia',
-    'LY': 'Libya',
-    'LI': 'Liechtenstein',
-    'LT': 'Lithuania',
-    'LU': 'Luxembourg',
-    'MG': 'Madagascar',
-    'MW': 'Malawi',
-    'MY': 'Malaysia',
-    'MV': 'Maldives',
-    'ML': 'Mali',
-    'MT': 'Malta',
-    'MH': 'Marshall Islands',
-    'MR': 'Mauritania',
-    'MU': 'Mauritius',
-    'MX': 'Mexico',
-    'FM': 'Micronesia',
-    'MD': 'Moldova',
-    'MC': 'Monaco',
-    'MN': 'Mongolia',
-    'ME': 'Montenegro',
-    'MA': 'Morocco',
-    'MZ': 'Mozambique',
-    'MM': 'Myanmar',
-    'NA': 'Namibia',
-    'NR': 'Nauru',
-    'NP': 'Nepal',
-    'NL': 'Netherlands',
-    'NZ': 'New Zealand',
-    'NI': 'Nicaragua',
-    'NE': 'Niger',
-    'NG': 'Nigeria',
-    'NO': 'Norway',
-    'OM': 'Oman',
-    'PK': 'Pakistan',
-    'PW': 'Palau',
-    'PS': 'Palestine',
-    'PA': 'Panama',
-    'PG': 'Papua New Guinea',
-    'PY': 'Paraguay',
-    'PE': 'Peru',
-    'PH': 'Philippines',
-    'PL': 'Poland',
-    'PT': 'Portugal',
-    'QA': 'Qatar',
-    'RO': 'Romania',
-    'RU': 'Russia',
-    'RW': 'Rwanda',
-    'KN': 'Saint Kitts and Nevis',
-    'LC': 'Saint Lucia',
-    'VC': 'Saint Vincent and the Grenadines',
-    'WS': 'Samoa',
-    'SM': 'San Marino',
-    'ST': 'Sao Tome and Principe',
-    'SA': 'Saudi Arabia',
-    'SN': 'Senegal',
-    'RS': 'Serbia',
-    'SC': 'Seychelles',
-    'SL': 'Sierra Leone',
-    'SG': 'Singapore',
-    'SK': 'Slovakia',
-    'SI': 'Slovenia',
-    'SB': 'Solomon Islands',
-    'SO': 'Somalia',
-    'ZA': 'South Africa',
-    'SS': 'South Sudan',
-    'ES': 'Spain',
-    'LK': 'Sri Lanka',
-    'SD': 'Sudan',
-    'SR': 'Suriname',
-    'SZ': 'Swaziland',
-    'SE': 'Sweden',
-    'CH': 'Switzerland',
-    'SY': 'Syria',
-    'TW': 'Taiwan',
-    'TJ': 'Tajikistan',
-    'TZ': 'Tanzania',
-    'TH': 'Thailand',
-    'TL': 'Timor-Leste',
-    'TG': 'Togo',
-    'TO': 'Tonga',
-    'TT': 'Trinidad and Tobago',
-    'TN': 'Tunisia',
-    'TR': 'Turkey',
-    'TM': 'Turkmenistan',
-    'TV': 'Tuvalu',
-    'UG': 'Uganda',
-    'UA': 'Ukraine',
-    'AE': 'United Arab Emirates',
-    'GB': 'United Kingdom',
-    'US': 'United States',
-    'UY': 'Uruguay',
-    'UZ': 'Uzbekistan',
-    'VU': 'Vanuatu',
-    'VA': 'Vatican City',
-    'VE': 'Venezuela',
-    'VN': 'Vietnam',
-    'YE': 'Yemen',
-    'ZM': 'Zambia',
-    'ZW': 'Zimbabwe'
-};
+function countryName(code: string): string {
+    if (!code) {
+        return '';
+    }
+    try {
+        regionNames ??= new Intl.DisplayNames(['en'], { type: 'region' });
+        return regionNames.of(code.toUpperCase()) ?? code;
+    } catch {
+        return code;
+    }
+}
 
 type VirusTotalReputation = IPReputationData['virustotal'];
 type AbuseIPDBReputation = IPReputationData['abuseipdb'];
@@ -274,6 +92,13 @@ function refangIP(ip: string): string {
 }
 
 /**
+ * Check that every octet of a plain IPv4 string is 0-255
+ */
+function isValidIPv4(address: string): boolean {
+    return address.split('.').every(octet => Number(octet) <= 255);
+}
+
+/**
  * Check that a plain IPv6 string has valid groups and at most one '::'
  */
 function isValidIPv6(address: string): boolean {
@@ -309,8 +134,9 @@ function findIPs(text: string): string[] {
         const start = match.index;
         const end = start + match[0].length;
         // Skip IPv4 addresses embedded in an IPv6 address (e.g. ::ffff:1.2.3.4)
-        if (!found.some(f => start < f.end && end > f.start)) {
-            found.push({ start, end, ip: refangIP(match[0]) });
+        const ip = refangIP(match[0]);
+        if (isValidIPv4(ip) && !found.some(f => start < f.end && end > f.start)) {
+            found.push({ start, end, ip });
         }
     }
 
@@ -318,11 +144,11 @@ function findIPs(text: string): string[] {
 }
 
 /**
- * Replace {field} placeholders with values. Unknown fields are left as-is.
+ * Replace {field} placeholders with values. Empty values show as N/A; unknown fields are left as-is.
  */
 function fillTemplate(template: string, values: { [field: string]: string }): string {
     return template.replace(/\{(\w+)\}/g, (placeholder, field) =>
-        Object.prototype.hasOwnProperty.call(values, field) ? values[field] : placeholder);
+        Object.prototype.hasOwnProperty.call(values, field) ? (values[field] || 'N/A') : placeholder);
 }
 
 function emptyVirusTotalReputation(): VirusTotalReputation {
@@ -336,6 +162,7 @@ function emptyVirusTotalReputation(): VirusTotalReputation {
         undetectedCount: 0,
         lastAnalysisDate: '',
         country: '',
+        countryCode: '',
         asOwner: '',
         asn: '',
         network: '',
@@ -373,6 +200,7 @@ const VIRUSTOTAL_FIELDS = [
     { name: '{undetectedCount}', desc: 'Number of vendors that didn\'t detect anything' },
     { name: '{lastAnalysisDate}', desc: 'Date of the last analysis' },
     { name: '{country}', desc: 'Country where the IP is located' },
+    { name: '{countryCode}', desc: 'Two-letter country code' },
     { name: '{asOwner}', desc: 'Autonomous System owner' },
     { name: '{asn}', desc: 'Autonomous System Number' },
     { name: '{network}', desc: 'Network/CIDR block' },
@@ -407,17 +235,15 @@ interface IPSettings {
     virustotalApiKey?: string;
     abuseipdbApiKey?: string;
     cacheDuration: number; // in hours
-    defangingMethod: 'all-dots' | 'last-dot'; // new setting
+    defangingMethod: 'all-dots' | 'last-dot';
     outputFormat: {
         virustotal: {
             enabled: boolean;
             format: string;
-            description: string;
         };
         abuseipdb: {
             enabled: boolean;
             format: string;
-            description: string;
         };
     };
 }
@@ -433,40 +259,19 @@ const DEFAULT_SETTINGS: IPSettings = {
     outputFormat: {
         virustotal: {
             enabled: true,
-            format: '{maliciousCount}/{totalVendors} vendors flagged as malicious',
-            description: `Available fields:
-- {maliciousCount}: Number of vendors that flagged the IP as malicious
-- {totalVendors}: Total number of vendors that analyzed the IP
-- {harmlessCount}: Number of vendors that flagged the IP as harmless
-- {suspiciousCount}: Number of vendors that flagged the IP as suspicious
-- {timeoutCount}: Number of vendors that timed out while analyzing
-- {undetectedCount}: Number of vendors that didn't detect anything
-- {lastAnalysisDate}: Date of the last analysis
-- {country}: Country where the IP is located
-- {asOwner}: Autonomous System owner
-- {asn}: Autonomous System Number
-- {network}: Network/CIDR block
-- {tags}: List of tags associated with the IP`
+            format: '{maliciousCount}/{totalVendors} vendors flagged as malicious'
         },
         abuseipdb: {
             enabled: true,
-            format: '{confidenceScore}% confidence of abuse, last reported {lastReported}',
-            description: `Available fields:
-- {confidenceScore}: Confidence score of abuse (0-100)
-- {lastReported}: Time since the IP was last reported
-- {totalReports}: Total number of reports for this IP
-- {numDistinctUsers}: Number of distinct users who reported this IP
-- {lastReportedAt}: Raw timestamp of the last report
-- {isPublic}: Whether the IP is public
-- {isWhitelisted}: Whether the IP is whitelisted
-- {countryCode}: Two-letter country code
-- {countryName}: Full country name
-- {usageType}: Type of usage (e.g., "Data Center", "ISP")
-- {domain}: Associated domain name
-- {hostnames}: List of associated hostnames`
+            format: '{confidenceScore}% confidence of abuse, last reported {lastReported}'
         }
     }
 }
+
+const PROVIDER_NAMES: { [provider in Provider]: string } = {
+    virustotal: 'VirusTotal',
+    abuseipdb: 'AbuseIPDB'
+};
 
 /**
  * Main plugin class for IP Reputation Checker
@@ -474,6 +279,8 @@ const DEFAULT_SETTINGS: IPSettings = {
 export default class IPReputationPlugin extends Plugin {
     settings: IPSettings;
     ipCache: Map<string, { virustotal?: VirusTotalReputation; abuseipdb?: AbuseIPDBReputation }> = new Map();
+    // Progress notice for the reputation check in progress, if any
+    private progressNotice: Notice | null = null;
 
     async onload() {
         await this.loadSettings();
@@ -482,27 +289,19 @@ export default class IPReputationPlugin extends Plugin {
         this.addCommand({
             id: 'check-ip-reputation',
             name: 'Check IP reputation in current note',
-            callback: () => this.checkIPReputation()
+            editorCallback: (editor, info) => this.annotateIPs(editor, info, 0, editor.lastLine())
         });
 
         // Add command to check IP reputation in highlighted area
         this.addCommand({
             id: 'check-ip-reputation-highlighted',
             name: 'Check IP reputation in highlighted area',
-            callback: async () => {
-                const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-                if (!activeView) {
-                    new Notice('No active note found');
-                    return;
-                }
-                const editor = activeView.editor;
-                const selectedText = editor.getSelection();
-                if (!selectedText) {
+            editorCallback: (editor, info) => {
+                if (!editor.getSelection()) {
                     new Notice('No text selected');
                     return;
                 }
-
-                await this.processReputationForSelection(editor, selectedText);
+                return this.annotateSelection(editor, info);
             }
         });
 
@@ -522,7 +321,7 @@ export default class IPReputationPlugin extends Plugin {
 
         // Add right-click menu items
         this.registerEvent(
-            this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor, view: MarkdownView) => {
+            this.app.workspace.on('editor-menu', (menu: Menu, editor: Editor, info: MarkdownView | MarkdownFileInfo) => {
                 const selectedText = editor.getSelection();
                 if (selectedText) {
                     const ip = this.findIP(selectedText);
@@ -531,9 +330,7 @@ export default class IPReputationPlugin extends Plugin {
                             item
                                 .setTitle('Check IP reputation')
                                 .setIcon('search')
-                                .onClick(async () => {
-                                    await this.processReputationForSelection(editor, selectedText);
-                                });
+                                .onClick(() => this.annotateSelection(editor, info));
                         });
 
                         menu.addItem((item: MenuItem) => {
@@ -554,7 +351,21 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        const data = await this.loadData() ?? {};
+        // Build nested objects explicitly so defaults are never shared or mutated, new defaults
+        // reach existing users, and fields from older versions (e.g. description) are dropped
+        const outputFormat = (provider: Provider) => ({
+            enabled: data.outputFormat?.[provider]?.enabled ?? DEFAULT_SETTINGS.outputFormat[provider].enabled,
+            format: data.outputFormat?.[provider]?.format ?? DEFAULT_SETTINGS.outputFormat[provider].format
+        });
+        this.settings = {
+            ...DEFAULT_SETTINGS,
+            ...data,
+            outputFormat: {
+                virustotal: outputFormat('virustotal'),
+                abuseipdb: outputFormat('abuseipdb')
+            }
+        };
         await this.migrateApiKeys();
     }
 
@@ -653,12 +464,13 @@ export default class IPReputationPlugin extends Plugin {
                 suspiciousCount: vt.suspiciousCount.toString(),
                 timeoutCount: vt.timeoutCount.toString(),
                 undetectedCount: vt.undetectedCount.toString(),
-                lastAnalysisDate: String(vt.lastAnalysisDate),
+                lastAnalysisDate: vt.lastAnalysisDate,
                 country: vt.country,
+                countryCode: vt.countryCode,
                 asOwner: vt.asOwner,
-                asn: String(vt.asn),
+                asn: vt.asn,
                 network: vt.network,
-                tags: vt.tags.length > 0 ? vt.tags.join(', ') : 'N/A'
+                tags: vt.tags.join(', ')
             });
             lines.push(`${indentPrefix}- VirusTotal: ${vtOutput}`);
         }
@@ -692,79 +504,107 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Process reputation check for selected text (handles multiple IPs)
+     * Check and annotate IPs on the lines covered by the editor's selection
      */
-    private async processReputationForSelection(editor: Editor, selectedText: string) {
-        // Split selection into lines and process each line
-        const lines = selectedText.split('\n');
-        let checkedCount = 0;
-        let errorCount = 0;
-        const annotatedLines: string[] = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            const ip = this.findIP(line);
-
-            if (ip) {
-                try {
-                    const reputation = await this.getIPReputation(ip);
-
-                    // The IP was found on this line, so annotate it directly
-                    const indentPrefix = this.getIndentPrefix(line);
-                    annotatedLines.push(line + this.generateAnnotation(reputation, indentPrefix));
-                    checkedCount++;
-                } catch (error) {
-                    console.error(`Error checking IP ${ip}:`, error);
-                    annotatedLines.push(line);
-                    errorCount++;
-                }
-            } else {
-                annotatedLines.push(line);
-            }
-        }
-
-        // Replace the selection with the annotated lines
-        editor.replaceSelection(annotatedLines.join('\n'));
-        new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? ` (${errorCount} errors)` : ''}`);
+    private annotateSelection(editor: Editor, info: MarkdownView | MarkdownFileInfo) {
+        const from = editor.getCursor('from');
+        const to = editor.getCursor('to');
+        // A selection ending at the start of a line doesn't include that line
+        const lastLine = to.ch === 0 && to.line > from.line ? to.line - 1 : to.line;
+        return this.annotateIPs(editor, info, from.line, lastLine);
     }
 
     /**
-     * Check IP reputation in the current note
+     * Check whether the line after lineIndex is an existing annotation
      */
-    private async checkIPReputation() {
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!activeView) {
-            new Notice('No active note found');
-            return;
+    private hasAnnotation(editor: Editor, lineIndex: number): boolean {
+        if (lineIndex >= editor.lineCount() - 1) {
+            return false;
         }
+        const next = editor.getLine(lineIndex + 1).trim();
+        return next.startsWith('- VirusTotal:') || next.startsWith('- AbuseIPDB:');
+    }
 
-        const editor = activeView.editor;
-        const content = editor.getValue();
+    /**
+     * Look up the IPs on lines fromLine..toLine that aren't annotated yet, then insert all
+     * annotations in a single edit so the cursor, scroll position and undo history are kept
+     */
+    private async annotateIPs(editor: Editor, info: MarkdownView | MarkdownFileInfo, fromLine: number, toLine: number) {
+        const file = info.file;
 
-        const lines = content.split('\n');
-        let checkedCount = 0;
-        let errorCount = 0;
-
-        for (const line of lines) {
-            const ip = this.findIP(line);
-
-            if (ip) {
-                try {
-                    const reputation = await this.getIPReputation(ip);
-                    this.updateNoteWithReputation(editor, ip, reputation);
-                    checkedCount++;
-                } catch (error) {
-                    console.error(`Error checking IP ${ip}:`, error);
-                    errorCount++;
-                }
+        const ips = new Set<string>();
+        let annotatedCount = 0;
+        for (let i = fromLine; i <= toLine; i++) {
+            const ip = this.findIP(editor.getLine(i));
+            if (!ip) {
+                continue;
+            }
+            if (this.hasAnnotation(editor, i)) {
+                annotatedCount++;
+            } else {
+                ips.add(ip);
             }
         }
 
-        if (checkedCount > 0 || errorCount > 0) {
-            new Notice(`Checked ${checkedCount} IPs${errorCount > 0 ? `, ${errorCount} errors` : ''}`);
-        } else {
-            new Notice('No valid IP addresses found in note');
+        if (ips.size === 0) {
+            new Notice(annotatedCount > 0 ? 'All IP addresses are already annotated' : 'No valid IP addresses found');
+            return;
         }
+
+        const results = new Map<string, IPReputationData>();
+        const errors: string[] = [];
+        this.progressNotice = new Notice(`Checking ${ips.size} IP address(es)...`, 0);
+        try {
+            let index = 0;
+            for (const ip of ips) {
+                index++;
+                this.progressNotice.setMessage(`Checking IP ${index} of ${ips.size}...`);
+                try {
+                    results.set(ip, await this.getIPReputation(ip));
+                } catch (error) {
+                    console.error(`Error checking IP ${ip}:`, error);
+                    errors.push(`${ip}: ${error.message}`);
+                }
+            }
+        } finally {
+            this.progressNotice.hide();
+            this.progressNotice = null;
+        }
+
+        // The lookups can take a while; don't write into a different note if the user switched
+        if (info.file !== file) {
+            new Notice('The note changed while checking IPs, so no annotations were added');
+            return;
+        }
+
+        // Re-read the lines, since the note may have been edited during the lookups
+        const changes: EditorChange[] = [];
+        for (let i = fromLine; i <= Math.min(toLine, editor.lastLine()); i++) {
+            const line = editor.getLine(i);
+            const ip = this.findIP(line);
+            const reputation = ip ? results.get(ip) : undefined;
+            if (reputation && !this.hasAnnotation(editor, i)) {
+                changes.push({
+                    from: { line: i, ch: line.length },
+                    text: this.generateAnnotation(reputation, this.getIndentPrefix(line))
+                });
+            }
+        }
+        if (changes.length > 0) {
+            editor.transaction({ changes });
+        }
+
+        let message = `Checked ${results.size} IP address(es)`;
+        if (annotatedCount > 0) {
+            message += `, skipped ${annotatedCount} already annotated`;
+        }
+        if (errors.length > 0) {
+            message += `\n\n${errors.length} failed:\n${errors.slice(0, 3).join('\n')}`;
+            if (errors.length > 3) {
+                message += `\n...and ${errors.length - 3} more (see console)`;
+            }
+        }
+        new Notice(message, errors.length > 0 ? 10000 : undefined);
     }
 
     /**
@@ -831,6 +671,9 @@ export default class IPReputationPlugin extends Plugin {
         });
 
         newText = newText.replace(new RegExp(IPV4_PLAIN_REGEX.source, 'g'), (match) => {
+            if (!isValidIPv4(match)) {
+                return match;
+            }
             count++;
             return this.defangIP(match);
         });
@@ -868,30 +711,25 @@ export default class IPReputationPlugin extends Plugin {
         const maxAge = this.settings.cacheDuration * 60 * 60 * 1000;
         const isFresh = (entry?: { lastChecked: number }) => !!entry && Date.now() - entry.lastChecked < maxAge;
 
-        try {
-            const [virustotal, abuseipdb] = await Promise.all([
-                !vtOutput.enabled ? undefined
-                    : isFresh(cached.virustotal) ? cached.virustotal
-                    : this.checkVirusTotal(ip).then(data => this.parseVirusTotal(data)),
-                !abuseOutput.enabled ? undefined
-                    : isFresh(cached.abuseipdb) ? cached.abuseipdb
-                    : this.checkAbuseIPDB(ip).then(data => this.parseAbuseIPDB(data))
-            ]);
+        const [virustotal, abuseipdb] = await Promise.all([
+            !vtOutput.enabled ? undefined
+                : isFresh(cached.virustotal) ? cached.virustotal
+                : this.checkVirusTotal(ip).then(data => this.parseVirusTotal(data)),
+            !abuseOutput.enabled ? undefined
+                : isFresh(cached.abuseipdb) ? cached.abuseipdb
+                : this.checkAbuseIPDB(ip).then(data => this.parseAbuseIPDB(data))
+        ]);
 
-            this.ipCache.set(ip, {
-                virustotal: virustotal ?? cached.virustotal,
-                abuseipdb: abuseipdb ?? cached.abuseipdb
-            });
+        this.ipCache.set(ip, {
+            virustotal: virustotal ?? cached.virustotal,
+            abuseipdb: abuseipdb ?? cached.abuseipdb
+        });
 
-            // Return copies to avoid modifying the cached data
-            return {
-                virustotal: { ...(virustotal ?? emptyVirusTotalReputation()) },
-                abuseipdb: { ...(abuseipdb ?? emptyAbuseIPDBReputation()) }
-            };
-        } catch (error) {
-            console.error(`Error getting reputation for IP ${ip}:`, error);
-            throw new Error(`Failed to get reputation data: ${error.message}`);
-        }
+        // Return copies to avoid modifying the cached data
+        return {
+            virustotal: { ...(virustotal ?? emptyVirusTotalReputation()) },
+            abuseipdb: { ...(abuseipdb ?? emptyAbuseIPDBReputation()) }
+        };
     }
 
     private parseVirusTotal(vtData: any): VirusTotalReputation {
@@ -908,10 +746,14 @@ export default class IPReputationPlugin extends Plugin {
             suspiciousCount: vtStats.suspicious || 0,
             timeoutCount: vtStats.timeout || 0,
             undetectedCount: vtStats.undetected || 0,
-            lastAnalysisDate: vtAttributes.last_analysis_date || '',
-            country: vtAttributes.country || '',
+            // VirusTotal returns a Unix timestamp in seconds
+            lastAnalysisDate: vtAttributes.last_analysis_date
+                ? new Date(vtAttributes.last_analysis_date * 1000).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+                : '',
+            country: countryName(vtAttributes.country || ''),
+            countryCode: vtAttributes.country || '',
             asOwner: vtAttributes.as_owner || '',
-            asn: vtAttributes.asn || '',
+            asn: vtAttributes.asn ? String(vtAttributes.asn) : '',
             network: vtAttributes.network || '',
             tags: vtAttributes.tags || []
         };
@@ -930,11 +772,46 @@ export default class IPReputationPlugin extends Plugin {
             isPublic: abuseDataObj.isPublic || false,
             isWhitelisted: abuseDataObj.isWhitelisted || false,
             countryCode: abuseDataObj.countryCode || '',
-            countryName: abuseDataObj.countryCode ? (COUNTRY_CODES[abuseDataObj.countryCode] || abuseDataObj.countryCode) : '',
+            countryName: countryName(abuseDataObj.countryCode || ''),
             usageType: abuseDataObj.usageType || '',
             domain: abuseDataObj.domain || '',
             hostnames: abuseDataObj.hostnames || []
         };
+    }
+
+    /**
+     * Make a GET request to a reputation API and return the parsed JSON, with readable errors
+     */
+    private async apiGet(provider: Provider, url: string, headers: Record<string, string>) {
+        const name = PROVIDER_NAMES[provider];
+
+        let response;
+        try {
+            response = await requestUrl({ url, method: 'GET', headers: { ...headers, 'Accept': 'application/json' }, throw: false });
+        } catch (error) {
+            throw new Error(`Couldn't reach ${name} (${error.message})`);
+        }
+
+        let data;
+        try {
+            data = response.json;
+        } catch {
+            data = null;
+        }
+
+        if (response.status >= 200 && response.status < 300 && data) {
+            return data;
+        }
+        switch (response.status) {
+            case 401:
+            case 403:
+                throw new Error(`${name} rejected the API key (${response.status})`);
+            case 429:
+                throw new Error(`${name} rate limit or quota reached (429)`);
+        }
+        // VirusTotal errors look like { error: { message } }, AbuseIPDB like { errors: [{ detail }] }
+        const detail = data?.error?.message || data?.errors?.[0]?.detail || 'unexpected response';
+        throw new Error(`${name} error ${response.status}: ${detail}`);
     }
 
     /**
@@ -943,32 +820,11 @@ export default class IPReputationPlugin extends Plugin {
     private async checkVirusTotal(ip: string) {
         const apiKey = this.getApiKey('virustotal');
         if (!apiKey) {
-            throw new Error('VirusTotal API key not configured');
+            throw new Error('No VirusTotal API key set');
         }
-
-        try {
-            const response = await request({
-                url: `https://www.virustotal.com/api/v3/ip_addresses/${ip}`,
-                method: 'GET',
-                headers: {
-                    'x-apikey': apiKey,
-                    'Accept': 'application/json'
-                }
-            });
-
-            const data = JSON.parse(response);
-            if (!data) {
-                throw new Error('Empty response from VirusTotal API');
-            }
-
-            return data;
-        } catch (error) {
-            console.error('VirusTotal API error:', error);
-            if (error.response) {
-                console.error('VirusTotal error response:', error.response);
-            }
-            throw new Error(`VirusTotal API error: ${error.message}`);
-        }
+        return this.apiGet('virustotal', `https://www.virustotal.com/api/v3/ip_addresses/${encodeURIComponent(ip)}`, {
+            'x-apikey': apiKey
+        });
     }
 
     /**
@@ -977,32 +833,11 @@ export default class IPReputationPlugin extends Plugin {
     private async checkAbuseIPDB(ip: string) {
         const apiKey = this.getApiKey('abuseipdb');
         if (!apiKey) {
-            throw new Error('AbuseIPDB API key not configured');
+            throw new Error('No AbuseIPDB API key set');
         }
-
-        try {
-            const response = await request({
-                url: `https://api.abuseipdb.com/api/v2/check?ipAddress=${ip}&maxAgeInDays=90`,
-                method: 'GET',
-                headers: {
-                    'Key': apiKey,
-                    'Accept': 'application/json'
-                }
-            });
-
-            const data = JSON.parse(response);
-            if (!data) {
-                throw new Error('Empty response from AbuseIPDB API');
-            }
-
-            return data;
-        } catch (error) {
-            console.error('AbuseIPDB API error:', error);
-            if (error.response) {
-                console.error('AbuseIPDB error response:', error.response);
-            }
-            throw new Error(`AbuseIPDB API error: ${error.message}`);
-        }
+        return this.apiGet('abuseipdb', `https://api.abuseipdb.com/api/v2/check?ipAddress=${encodeURIComponent(ip)}&maxAgeInDays=90`, {
+            'Key': apiKey
+        });
     }
 
     /**
@@ -1042,136 +877,28 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Update the note with reputation data for an IP address
-     */
-    private updateNoteWithReputation(editor: Editor, ip: string, reputation: IPReputationData) {
-        const content = editor.getValue();
-
-        // Split content into lines and process each line
-        const lines = content.split('\n');
-        let newContent = '';
-        let foundIP = false;
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Check if this line contains our IP (plain or defanged), matching whole addresses only
-            if (findIPs(line).includes(ip)) {
-                foundIP = true;
-
-                // Check if the next line already has an annotation
-                const hasAnnotation = i + 1 < lines.length &&
-                    (lines[i + 1].trim().startsWith('- VirusTotal:') ||
-                        lines[i + 1].trim().startsWith('- AbuseIPDB:'));
-
-                if (!hasAnnotation) {
-                    const indentPrefix = this.getIndentPrefix(line);
-                    const annotation = this.generateAnnotation(reputation, indentPrefix);
-                    newContent += line + annotation;
-                } else {
-                    newContent += line;
-                }
-            } else {
-                newContent += line;
-            }
-
-            // Add newline if not the last line
-            if (i < lines.length - 1) {
-                newContent += '\n';
-            }
-        }
-
-        editor.setValue(newContent);
-    }
-
-    /**
      * Test the API keys to ensure they are working correctly
      */
     async testApiKeys(): Promise<{ virustotal: boolean; abuseipdb: boolean; errors: { virustotal: string; abuseipdb: string } }> {
-        const results = {
-            virustotal: false,
-            abuseipdb: false,
-            errors: {
-                virustotal: '',
-                abuseipdb: ''
+        const test = async (check: () => Promise<any>, isValid: (data: any) => boolean) => {
+            try {
+                return isValid(await check()) ? '' : 'Unexpected response format';
+            } catch (error) {
+                console.error('API key test error:', error);
+                return error.message || 'Unknown error';
             }
         };
 
-        const vtApiKey = this.getApiKey('virustotal');
-        const abuseApiKey = this.getApiKey('abuseipdb');
+        const [virustotal, abuseipdb] = await Promise.all([
+            test(() => this.checkVirusTotal('8.8.8.8'), data => !!data?.data?.attributes?.last_analysis_stats),
+            test(() => this.checkAbuseIPDB('8.8.8.8'), data => typeof data?.data?.abuseConfidenceScore === 'number')
+        ]);
 
-        // Test VirusTotal API
-        if (vtApiKey) {
-            try {
-                const response = await request({
-                    url: 'https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8',
-                    method: 'GET',
-                    headers: {
-                        'x-apikey': vtApiKey,
-                        'Accept': 'application/json'
-                    }
-                });
-
-                const data = JSON.parse(response);
-
-                if (!data) {
-                    results.errors.virustotal = 'Empty response from VirusTotal API';
-                } else if (!data.data) {
-                    results.errors.virustotal = 'Missing data field in VirusTotal response';
-                } else if (!data.data.attributes) {
-                    results.errors.virustotal = 'Missing attributes field in VirusTotal response';
-                } else if (!data.data.attributes.last_analysis_stats) {
-                    results.errors.virustotal = 'Missing last_analysis_stats in VirusTotal response';
-                } else {
-                    results.virustotal = true;
-                }
-            } catch (error) {
-                console.error('VirusTotal API test error:', error);
-                if (error.response) {
-                    results.errors.virustotal = `Error ${error.response.status}: ${error.response.data?.errors?.[0]?.detail || error.response.data?.message || 'Unknown error'}`;
-                } else if (error.request) {
-                    results.errors.virustotal = 'No response received from VirusTotal API';
-                } else {
-                    results.errors.virustotal = error.message || 'Unknown error';
-                }
-            }
-        } else {
-            results.errors.virustotal = 'No API key provided';
-        }
-
-        // Test AbuseIPDB API
-        if (abuseApiKey) {
-            try {
-                const response = await request({
-                    url: 'https://api.abuseipdb.com/api/v2/check?ipAddress=8.8.8.8&maxAgeInDays=90',
-                    method: 'GET',
-                    headers: {
-                        'Key': abuseApiKey,
-                        'Accept': 'application/json'
-                    }
-                });
-
-                const data = JSON.parse(response);
-
-                if (data.data && typeof data.data.abuseConfidenceScore === 'number') {
-                    results.abuseipdb = true;
-                } else {
-                    results.errors.abuseipdb = 'Invalid response format from AbuseIPDB API';
-                }
-            } catch (error) {
-                if (error.response) {
-                    results.errors.abuseipdb = `Error ${error.response.status}: ${error.response.data?.errors?.[0]?.detail || error.response.data?.message || 'Unknown error'}`;
-                } else if (error.request) {
-                    results.errors.abuseipdb = 'No response received from AbuseIPDB API';
-                } else {
-                    results.errors.abuseipdb = error.message || 'Unknown error';
-                }
-            }
-        } else {
-            results.errors.abuseipdb = 'No API key provided';
-        }
-
-        return results;
+        return {
+            virustotal: !virustotal,
+            abuseipdb: !abuseipdb,
+            errors: { virustotal, abuseipdb }
+        };
     }
 }
 
@@ -1246,19 +973,11 @@ class IPSettingTab extends PluginSettingTab {
                     .onClick(async () => {
                         const results = await this.plugin.testApiKeys();
 
-                        let message = '';
+                        const status = (provider: Provider) => results[provider]
+                            ? `✅ ${PROVIDER_NAMES[provider]} API key is working`
+                            : `❌ ${results.errors[provider]}`;
 
-                        // VirusTotal status
-                        message += results.virustotal
-                            ? '✅ VirusTotal API key is working\n'
-                            : `❌ VirusTotal API key is not working\n${results.errors.virustotal}\n\n`;
-
-                        // AbuseIPDB status
-                        message += results.abuseipdb
-                            ? '✅ AbuseIPDB API key is working'
-                            : `❌ AbuseIPDB API key is not working\n${results.errors.abuseipdb}`;
-
-                        new Notice(message);
+                        new Notice(`${status('virustotal')}\n${status('abuseipdb')}`, 10000);
                     })));
 
         new SettingGroup(containerEl)
@@ -1330,8 +1049,9 @@ class IPSettingTab extends PluginSettingTab {
                 suspiciousCount: 1,
                 timeoutCount: 0,
                 undetectedCount: 1,
-                lastAnalysisDate: '2024-03-15T12:00:00Z',
+                lastAnalysisDate: '2024-03-15 12:00 UTC',
                 country: 'United States',
+                countryCode: 'US',
                 asOwner: 'Google LLC',
                 asn: 'AS15169',
                 network: '8.8.8.0/24',
