@@ -9,16 +9,18 @@ An Obsidian plugin that provides a collection of tools for SOC analysts and cybe
   - Supports defanged IP addresses (e.g. `8[.]8[.]8[.]8` or `8.8.8[.]8`)
   - Checks IP reputation using VirusTotal and AbuseIPDB APIs
   - Caches results to minimise API calls, and skips IPs that are already annotated
+  - Skips private and reserved addresses (e.g. `10.0.0.0/8`, `192.168.0.0/16`, `fe80::/10`) so internal IPs are never sent to third parties
+  - Optional links from each annotation to the full VirusTotal and AbuseIPDB report
   - Customisable output format for both APIs
   - Example output preview
   - Right-click context menu for quick IP checks
   - Command palette support for checking highlighted IPs
 
-- **IP Defanging**
-  - Defang IPs in current note with a single command
-  - Right-click menu option for defanging IPs
+- **IP Defanging and Refanging**
+  - Defang or refang IPs in the current note or highlighted area with a single command
+  - Right-click menu options for defanging and refanging, shown only when they apply
   - Supports both full defanging and last-dot defanging
-  - Maintains original note formatting
+  - Maintains original note formatting, and leaves report links in annotations working
 
 ## Installation
 
@@ -55,16 +57,18 @@ Before you will be able to run IP reputation checks, you need to first configure
    - Open the command palette (Ctrl/Cmd + P) and search for "Check IP reputation in current note"
 3. The plugin will add reputation data below each IP address. You can configure the output in the plugin settings.
 
-Lines that already have an annotation underneath are skipped, so re-running a check only looks up new IPs.
+Lines that already have an annotation underneath are skipped, so re-running a check only looks up new IPs. Private and reserved addresses are never looked up.
 
-### IP Defanging
+### IP Defanging and Refanging
 
 1. Open a note containing IP addresses
 2. Use one of the following methods to defang IPs:
-   - Press your defined hotkey for "Defang IPs in current note"
-   - Right-click on an IP and select "Defang IP"
-   - Open the command palette (Ctrl/Cmd + P) and search for "Defang IPs in current note"
+   - Press your defined hotkey for "Defang IPs in current note" or "Defang IPs in highlighted area"
+   - Highlight IPs, right-click and select "Defang IP address(es)"
+   - Open the command palette (Ctrl/Cmd + P) and search for "Defang IPs"
 3. The plugin will defang the IP address(es) while maintaining the original formatting
+
+Refanging works the same way, using the "Refang IPs in current note" and "Refang IPs in highlighted area" commands or the "Refang IP address(es)" right-click option. This is handy for pasting IPs into other tools.
 
 ## Example
 
