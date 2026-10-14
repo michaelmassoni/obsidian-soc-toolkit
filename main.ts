@@ -234,7 +234,6 @@ interface IPSettings {
     // Plaintext keys saved by older versions, moved into secret storage on load
     virustotalApiKey?: string;
     abuseipdbApiKey?: string;
-    virustotalRateLimit: number; // lookups per minute, 0 for no limit
     cacheDuration: number; // in hours
     defangingMethod: 'all-dots' | 'last-dot';
     outputFormat: {
@@ -255,7 +254,6 @@ interface IPSettings {
 const DEFAULT_SETTINGS: IPSettings = {
     virustotalSecret: '',
     abuseipdbSecret: '',
-    virustotalRateLimit: 4, // the free VirusTotal API allows 4 lookups per minute
     cacheDuration: 24,
     defangingMethod: 'all-dots', // default to replacing all dots
     outputFormat: {
@@ -281,8 +279,6 @@ const PROVIDER_NAMES: { [provider in Provider]: string } = {
 export default class IPReputationPlugin extends Plugin {
     settings: IPSettings;
     ipCache: Map<string, { virustotal?: VirusTotalReputation; abuseipdb?: AbuseIPDBReputation }> = new Map();
-    // Start times of recent VirusTotal requests, for rate limiting
-    private virustotalRequestTimes: number[] = [];
     // Progress notice for the reputation check in progress, if any
     private progressNotice: Notice | null = null;
 
@@ -784,35 +780,10 @@ export default class IPReputationPlugin extends Plugin {
     }
 
     /**
-     * Wait until another VirusTotal request fits within the configured rate limit
-     */
-    private async waitForVirusTotalSlot() {
-        const limit = this.settings.virustotalRateLimit;
-        if (limit <= 0) {
-            return;
-        }
-        const windowMs = 60 * 1000;
-        for (;;) {
-            const now = Date.now();
-            this.virustotalRequestTimes = this.virustotalRequestTimes.filter(time => now - time < windowMs);
-            if (this.virustotalRequestTimes.length < limit) {
-                this.virustotalRequestTimes.push(now);
-                return;
-            }
-            const waitMs = this.virustotalRequestTimes[0] + windowMs - now;
-            this.progressNotice?.setMessage(`Waiting ${Math.ceil(waitMs / 1000)}s for the VirusTotal rate limit...`);
-            await new Promise(resolve => window.setTimeout(resolve, waitMs));
-        }
-    }
-
-    /**
      * Make a GET request to a reputation API and return the parsed JSON, with readable errors
      */
     private async apiGet(provider: Provider, url: string, headers: Record<string, string>) {
         const name = PROVIDER_NAMES[provider];
-        if (provider === 'virustotal') {
-            await this.waitForVirusTotalSlot();
-        }
 
         let response;
         try {
@@ -1007,19 +978,6 @@ class IPSettingTab extends PluginSettingTab {
                             : `❌ ${results.errors[provider]}`;
 
                         new Notice(`${status('virustotal')}\n${status('abuseipdb')}`, 10000);
-                    })))
-            .addSetting(setting => setting
-                .setName('VirusTotal lookups per minute')
-                .setDesc('Free VirusTotal API keys allow 4 lookups per minute. Larger notes will wait between lookups. Set to 0 for no limit (premium keys).')
-                .addText(text => text
-                    .setPlaceholder('4')
-                    .setValue(this.plugin.settings.virustotalRateLimit.toString())
-                    .onChange(async (value) => {
-                        const num = parseInt(value);
-                        if (!isNaN(num) && num >= 0) {
-                            this.plugin.settings.virustotalRateLimit = num;
-                            await this.plugin.saveSettings();
-                        }
                     })));
 
         new SettingGroup(containerEl)
