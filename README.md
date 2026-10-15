@@ -1,26 +1,24 @@
 # SOC Toolkit for Obsidian
 
-An Obsidian plugin that provides a collection of tools for SOC analysts and cybersecurity professionals. Currently includes IP reputation analysis using VirusTotal and AbuseIPDB APIs, and IP defanging. 
+An Obsidian plugin that provides a collection of tools for SOC analysts and cybersecurity professionals. It checks the reputation of IP addresses, domains and URLs using VirusTotal and AbuseIPDB, and defangs and refangs them.
 
 ## Features
 
-- **IP Reputation Analysis**
-  - Scans notes for both IPv4 and IPv6 addresses
-  - Supports defanged IP addresses (e.g. `8[.]8[.]8[.]8` or `8.8.8[.]8`)
-  - Checks IP reputation using VirusTotal and AbuseIPDB APIs
-  - Caches results to minimise API calls, and skips IPs that are already annotated
-  - Skips private and reserved addresses (e.g. `10.0.0.0/8`, `192.168.0.0/16`, `fe80::/10`) so internal IPs are never sent to third parties
-  - Optional links from each annotation to the full VirusTotal and AbuseIPDB report
-  - Customisable output format for both APIs
-  - Example output preview
-  - Right-click context menu for quick IP checks
-  - Command palette support for checking highlighted IPs
+- **Reputation Analysis**
+  - Scans notes for IPv4 and IPv6 addresses, domains and URLs, including defanged ones (e.g. `8[.]8[.]8[.]8`, `evil[.]com`, `hxxps://evil[.]com/login`)
+  - Checks IPs with VirusTotal and AbuseIPDB, and domains and URLs with VirusTotal
+  - URLs are only looked up, never submitted for scanning
+  - Caches results to minimise API calls, and skips IOCs that are already annotated
+  - Never sends private or reserved addresses (e.g. `10.0.0.0/8`, `192.168.0.0/16`, `fe80::/10`), or domains you list in settings, to third parties
+  - Customisable output format for each indicator type, with a preview
+  - Optional links from each annotation to the full VirusTotal or AbuseIPDB report
+  - Right-click context menu and command palette support for checking highlighted text
 
-- **IP Defanging and Refanging**
-  - Defang or refang IPs in the current note or highlighted area with a single command
+- **Defanging and Refanging**
+  - Defang or refang IPs, domains and URLs in the current note or highlighted area with a single command
   - Right-click menu options for defanging and refanging, shown only when they apply
   - Supports both full defanging and last-dot defanging
-  - Maintains original note formatting, and leaves report links in annotations working
+  - Maintains original note formatting, and leaves links, wikilinks, frontmatter and report links in annotations working
 
 ## Installation
 
@@ -34,7 +32,7 @@ You can now install this plugin directly from within Obsidian:
 
 ## Configuration
 
-Before you will be able to run IP reputation checks, you need to first configure your API keys:
+Before you will be able to run reputation checks, you need to first configure your API keys:
 
 1. Get a VirusTotal API key from [VirusTotal](https://www.virustotal.com/gui/join-us)
 2. Get an AbuseIPDB API key from [AbuseIPDB](https://www.abuseipdb.com/account/api)
@@ -42,58 +40,67 @@ Before you will be able to run IP reputation checks, you need to first configure
 4. Go to Community Plugins > SOC Toolkit
 5. For each API key, choose an existing secret or create a new one and paste your key into it (keys are kept in Obsidian's secret storage, not in the plugin's settings file)
 6. Click "Test keys" to ensure both API keys are valid and working
-7. (Recommended) Set your desired keybindings in Obsidian Hotkeys settings
-8. (Optional) Adjust the cache duration (default: 24 hours)
+7. (Recommended) Add your organisation's domains under Indicators > "Never look up", so they're never sent to third parties
+8. (Recommended) Set your desired keybindings in Obsidian Hotkeys settings
+9. (Optional) Choose which indicator types to detect, and customise the output for each under Output (IPs, Domains, URLs)
+
+The free VirusTotal and AbuseIPDB APIs are for non-commercial use. If you're using the plugin for work, check whether your organisation needs its own licensed keys.
 
 ## Usage
 
-### IP Reputation Analysis
+### Reputation Analysis
 
-1. Open a note containing IP addresses (regular or defanged)
-2. Use one of the following methods to check IP reputation:
-   - Press your defined hotkey for "Check IP reputation in current note"
-   - Highlight IPs you wish to check, and then press your defined hotkey for "Check IP reputation in highlighted area"
-   - Highlight IPs you wish to check, and then open right-click menu and select "Check IP Reputation" 
-   - Open the command palette (Ctrl/Cmd + P) and search for "Check IP reputation in current note"
-3. The plugin will add reputation data below each IP address. You can configure the output in the plugin settings.
+1. Open a note containing IP addresses, domains or URLs (regular or defanged)
+2. Use one of the following methods to check their reputation:
+   - Press your defined hotkey for "Check reputation in current note"
+   - Highlight what you wish to check, and then press your defined hotkey for "Check reputation in highlighted area"
+   - Highlight what you wish to check, and then open the right-click menu and select "Check reputation"
+   - Open the command palette (Ctrl/Cmd + P) and search for "Check reputation"
+3. The plugin will add reputation data below each line. You can configure the output in the plugin settings.
 
-Lines that already have an annotation underneath are skipped, so re-running a check only looks up new IPs. Private and reserved addresses are never looked up.
+The first IOC on each line is checked. Lines that already have an annotation underneath are skipped, so re-running a check only looks up new IOCs.
 
-### IP Defanging and Refanging
+When checking a whole note, link targets, wikilinks and frontmatter are ignored, as are domains that look like filenames (e.g. `notes.md`, `script.sh`) unless they're defanged. Highlight text to check these anyway.
 
-1. Open a note containing IP addresses
-2. Use one of the following methods to defang IPs:
-   - Press your defined hotkey for "Defang IPs in current note" or "Defang IPs in highlighted area"
-   - Highlight IPs, right-click and select "Defang IP address(es)"
-   - Open the command palette (Ctrl/Cmd + P) and search for "Defang IPs"
-3. The plugin will defang the IP address(es) while maintaining the original formatting
+### Defanging and Refanging
 
-Refanging works the same way, using the "Refang IPs in current note" and "Refang IPs in highlighted area" commands or the "Refang IP address(es)" right-click option. This is handy for pasting IPs into other tools.
+1. Open a note containing IP addresses, domains or URLs
+2. Use one of the following methods to defang them:
+   - Press your defined hotkey for "Defang IOCs in current note" or "Defang IOCs in highlighted area"
+   - Highlight IOCs, right-click and select "Defang IOCs"
+   - Open the command palette (Ctrl/Cmd + P) and search for "Defang IOCs"
+3. The plugin will defang them (e.g. `hxxps://evil[.]com/login`) while maintaining the original formatting
+
+Refanging works the same way, using the "Refang IOCs in current note" and "Refang IOCs in highlighted area" commands or the "Refang IOCs" right-click option. This is handy for pasting IOCs into other tools.
 
 ## Example
 
 Before:
 ```
-IPs involved in incident:
+IOCs involved in incident:
 - 8.8.8.8
-- 2001:4860:4860::8888
+- login-verify[.]com
+- hxxps://login-verify[.]com/auth
 ```
 
-After running the plugin:
+After checking reputation:
 ```
-IPs involved in incident:
-- 8[.]8[.]8[.]8
+IOCs involved in incident:
+- 8.8.8.8
   - VirusTotal: 0/94 vendors flagged as malicious
-  - AbuseIPDB: 0% confidence of abuse, last reported today
-- 2001[:]4860[:]4860::8888
-  - VirusTotal: 0/94 vendors flagged as malicious
-  - AbuseIPDB: 0% confidence of abuse, last reported 66d ago
+  - AbuseIPDB: 0% confidence of abuse, last reported 2d ago
+- login-verify[.]com
+  - VirusTotal: 7/94 vendors flagged as malicious, domain age 12d
+- hxxps://login-verify[.]com/auth
+  - VirusTotal: 9/95 vendors flagged as malicious
 ```
 
 ## Privacy
 
 This plugin:
-- Sends IP addresses to VirusTotal and AbuseIPDB for reputation checking
+- Sends IP addresses to VirusTotal and AbuseIPDB, and domains and URLs to VirusTotal, for reputation checking
+- Never sends private or reserved IP addresses, or domains on your "Never look up" list
+- Only looks URLs up; it never submits them for scanning
 - Stores API keys in Obsidian's secret storage (requires Obsidian 1.11.4 or later); keys saved by older versions are moved there automatically
 - Caches results locally to minimise API calls
 
@@ -101,10 +108,11 @@ This plugin:
 
 - [x] IP reputation checking
 - [x] IP defanging
-- [ ] URL defanging
-- [ ] Domain/URL reputation analysis
+- [x] URL and domain defanging
+- [x] Domain/URL reputation analysis
+- [ ] More providers (e.g. URLhaus)
 - [ ] File hash analysis
 
 ## License
 
-This project is licensed under the GPLv3 License - see the LICENSE file for details. 
+This project is licensed under the GPLv3 License - see the LICENSE file for details.

@@ -12,9 +12,45 @@
     flex-basis: 100%;
 }
 
-.soc-toolkit-settings .soc-toolkit-wide .setting-item-control input {
+.soc-toolkit-settings .soc-toolkit-wide .setting-item-control input,
+.soc-toolkit-settings .soc-toolkit-wide .setting-item-control textarea {
     width: 100%;
     font-family: var(--font-monospace);
+}
+
+.soc-toolkit-settings .soc-toolkit-wide .setting-item-control textarea {
+    min-height: 5em;
+    resize: vertical;
+}
+
+/* IPs | Domains | URLs switcher for the output settings */
+.soc-toolkit-settings .soc-toolkit-tabs {
+    display: inline-flex;
+    padding: var(--size-2-1);
+    gap: var(--size-2-1);
+    background-color: var(--background-modifier-hover);
+    border-radius: var(--radius-m);
+}
+
+.soc-toolkit-settings .soc-toolkit-tab {
+    padding: var(--size-2-2) var(--size-4-3);
+    background: transparent;
+    box-shadow: none;
+    border: none;
+    border-radius: var(--radius-s);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+}
+
+.soc-toolkit-settings .soc-toolkit-tab:hover {
+    color: var(--text-normal);
+}
+
+.soc-toolkit-settings .soc-toolkit-tab.is-active {
+    background-color: var(--background-primary);
+    color: var(--text-normal);
+    box-shadow: var(--shadow-s);
 }
 
 .soc-toolkit-settings .soc-toolkit-preview {
